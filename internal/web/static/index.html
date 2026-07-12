@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SysInfoGo Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="dashboard">
+        <header class="header">
+            <div class="logo">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="url(#gradient)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <defs>
+                        <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stop-color="#3b82f6" />
+                            <stop offset="100%" stop-color="#8b5cf6" />
+                        </linearGradient>
+                    </defs>
+                    <path d="M20 16V7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9m16 0H4m16 0 1.28 2.55a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45L4 16"></path>
+                </svg>
+                <h1>SysInfoGo</h1>
+                <span class="badge" id="live-badge" style="display: none;">LIVE</span>
+            </div>
+            <div class="actions" style="display: flex; gap: 10px; align-items: center;">
+                <div class="meta" id="header-meta" data-i18n="Загрузка...">
+                    Загрузка...
+                </div>
+                <div class="export-buttons" id="export-buttons" style="display: none;">
+                    <a href="/api/export/txt" class="btn">TXT</a>
+                    <a href="/api/export/csv" class="btn">CSV</a>
+                    <a href="/api/export/html" class="btn">HTML</a>
+                </div>
+            </div>
+        </header>
+
+        <main class="grid-container" id="grid-container">
+            <!-- Summary -->
+            <div class="card" id="card-summary" style="display: none;">
+                <div class="card-header" data-i18n="Сводка">Сводка</div>
+                <div class="card-body" id="content-summary"></div>
+            </div>
+            <!-- CPU -->
+            <div class="card" id="card-cpu" style="display: none;">
+                <div class="card-header" data-i18n="Процессор">Процессор</div>
+                <div class="card-body" id="content-cpu"></div>
+            </div>
+            <!-- Memory -->
+            <div class="card" id="card-memory" style="display: none;">
+                <div class="card-header" data-i18n="Оперативная память">Оперативная память</div>
+                <div class="card-body" id="content-memory"></div>
+            </div>
+            <!-- GPU -->
+            <div class="card" id="card-gpu" style="display: none;">
+                <div class="card-header" data-i18n="Видеокарта">Видеокарта</div>
+                <div class="card-body" id="content-gpu"></div>
+            </div>
+            <!-- Network -->
+            <div class="card" id="card-network" style="display: none;">
+                <div class="card-header" data-i18n="Сеть">Сеть</div>
+                <div class="card-body" id="content-network"></div>
+            </div>
+            <!-- Battery -->
+            <div class="card" id="card-battery" style="display: none;">
+                <div class="card-header" data-i18n="Батарея">Батарея</div>
+                <div class="card-body" id="content-battery"></div>
+            </div>
+            <!-- Processes -->
+            <div class="card card-wide" id="card-processes" style="display: none;">
+                <div class="card-header" data-i18n="Процессы">Процессы</div>
+                <div class="card-body" id="content-processes"></div>
+            </div>
+            <!-- Storage -->
+            <div class="card card-wide" id="card-storage" style="display: none;">
+                <div class="card-header" data-i18n="Накопители">Накопители</div>
+                <div class="card-body storage-grid" id="content-storage"></div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modals -->
+    <div id="modal-overlay" class="modal-overlay" style="display: none;" onclick="closeModal()"></div>
+    <div id="modal" class="modal" style="display: none;">
+        <div class="modal-header">
+            <h3 id="modal-title">Title</h3>
+            <button class="btn" onclick="closeModal()" data-i18n="Закрыть">Закрыть</button>
+        </div>
+        <div class="modal-body" id="modal-body"></div>
+    </div>
+
+    <!-- Для экспорта в статику -->
+    <script id="injected-data" type="application/json"></script>
+    <!-- Основной скрипт -->
+    <script src="app.js"></script>
+</body>
+</html>

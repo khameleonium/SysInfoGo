@@ -1,0 +1,9 @@
+sysinfogo.exe
+sysinfogo_linux_amd64
+sysinfogo_darwin_arm64
+*.exe
+*.log
+.agents/
+
+
+Releases/
