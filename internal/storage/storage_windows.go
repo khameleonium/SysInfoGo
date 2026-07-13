@@ -310,14 +310,6 @@ func detectRAMDisks(ctx context.Context, usageByLetter map[string]*disk.UsageSta
 	return result
 }
 
-func findPartitionLetter(partName string, driveToDisk map[string]int, targetDisk int) string {
-	for letter, d := range driveToDisk {
-		if d == targetDisk {
-			return letter
-		}
-	}
-	return ""
-}
 
 func wmiDiskSizeByNum(disks []wmiDisk, num int) uint64 {
 	for _, wd := range disks {

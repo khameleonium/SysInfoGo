@@ -5,9 +5,11 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/user/sysinfogo/internal/battery"
@@ -27,7 +29,7 @@ import (
 	"github.com/user/sysinfogo/internal/web"
 )
 
-const version = "0.1.0"
+const version = "1.0.0"
 
 var (
 	flagCPU          bool
@@ -158,21 +160,24 @@ func main() {
 		output.DisableColors()
 	}
 
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
 	if flagWatch {
-		runWatch(noColor)
+		runWatch(ctx, noColor)
 		return
 	}
 	if flagTUI {
-		runTUI()
+		runTUI(ctx)
 		return
 	}
 	if flagWeb {
-		runWeb()
+		runWeb(ctx)
 		return
 	}
 
 	sections := selectedSections()
-	results, warnings := collectSections(sections)
+	results, warnings := collectSections(ctx, sections)
 
 	aggr := &output.AggregatedData{
 		Timestamp:    time.Now().UTC().Format(time.RFC3339),
@@ -203,13 +208,13 @@ func main() {
 	fmt.Print(formatter.Format(aggr))
 }
 
-func runWeb() {
+func runWeb(ctx context.Context) {
 	cfg := loadConfig()
 	sections := append([]string{"summary"}, allSections()...)
-	server := web.NewServer(flagPort, cfg.BackgroundNetworkHistory, func(ctx context.Context) (map[string]any, []output.Warning) {
-		return collectSections(sections)
+	server := web.NewServer(flagPort, cfg.BackgroundNetworkHistory, func(reqCtx context.Context) (map[string]any, []output.Warning) {
+		return collectSections(reqCtx, sections)
 	})
-	if err := server.Start(context.Background(), flagInterval); err != nil {
+	if err := server.Start(ctx, flagInterval); err != nil {
 		fmt.Fprintf(os.Stderr, "Web server error: %v\n", err)
 		os.Exit(1)
 	}
@@ -256,13 +261,10 @@ func allSections() []string {
 	return []string{"summary", "cpu", "memory", "storage", "gpu", "network", "motherboard", "processes", "battery"}
 }
 
-func collectSections(sections []string) (map[string]any, []output.Warning) {
+func collectSections(ctx context.Context, sections []string) (map[string]any, []output.Warning) {
 	results := make(map[string]any)
 	var warnings []output.Warning
 	var mu sync.Mutex
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
 
 	var wg sync.WaitGroup
 	for _, name := range sections {
@@ -315,19 +317,19 @@ func collectSection(ctx context.Context, name string) (any, []output.Warning) {
 	}
 }
 
-func runTUI() {
+func runTUI(ctx context.Context) {
 	sections := allSections() // TUI dashboard needs all sections
 	cfg := loadConfig()
-	app := tui.NewApp(flagInterval, flagAllProcesses, cfg.BackgroundNetworkHistory, func(ctx context.Context) (map[string]any, []output.Warning) {
-		return collectSections(sections)
+	app := tui.NewApp(flagInterval, flagAllProcesses, cfg.BackgroundNetworkHistory, func(reqCtx context.Context) (map[string]any, []output.Warning) {
+		return collectSections(reqCtx, sections)
 	})
-	if err := app.Run(); err != nil {
+	if err := app.Run(ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "TUI error: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func runWatch(noColor bool) {
+func runWatch(ctx context.Context, noColor bool) {
 	sections := watchSections()
 	w, err := watch.New(flagInterval, flagJSON, noColor, flagVerbose, flagUnits, flagLog, flagLogAppend, sections, flagAllProcesses)
 	if err != nil {
@@ -335,12 +337,9 @@ func runWatch(noColor bool) {
 		os.Exit(1)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	w.Run(ctx,
-		func(ctx context.Context) (map[string]any, []output.Warning) {
-			return collectSections(sections)
+		func(reqCtx context.Context) (map[string]any, []output.Warning) {
+			return collectSections(reqCtx, sections)
 		},
 	)
 }

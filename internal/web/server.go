@@ -94,7 +94,9 @@ func (s *Server) Start(ctx context.Context, interval time.Duration) error {
 
 	go func() {
 		<-ctx.Done()
-		server.Shutdown(context.Background())
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		server.Shutdown(shutdownCtx)
 	}()
 
 	fmt.Printf("Web Dashboard is running at http://localhost:%s\n", s.port)

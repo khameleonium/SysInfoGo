@@ -251,7 +251,7 @@ func (f *TextFormatter) formatStorage(b *strings.Builder, section any) {
 		}
 		hparts := []string{fmt.Sprintf("SMART: %s (%d%%)", healthStr, int(d.HealthPct))}
 		if d.TempC > 0 {
-			hparts = append(hparts, fmt.Sprintf("%s", output.TempColor(d.TempC, fmt.Sprintf("%.0f°C", d.TempC))))
+			hparts = append(hparts, output.TempColor(d.TempC, fmt.Sprintf("%.0f°C", d.TempC)))
 		}
 		if d.PowerOnHrs > 0 {
 			hparts = append(hparts, fmt.Sprintf("%d %s", d.PowerOnHrs, locale.T("ч.")))
@@ -491,12 +491,6 @@ func formatBytes(bytes uint64) string {
 	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "KMGTPE"[exp])
 }
 
-func formatMB(mb uint64) string {
-	if mb >= 1024 {
-		return fmt.Sprintf("%.1f GB", float64(mb)/1024)
-	}
-	return fmt.Sprintf("%d MB", mb)
-}
 
 func truncate(s string, maxLen int) string {
 	if len(s) <= maxLen {

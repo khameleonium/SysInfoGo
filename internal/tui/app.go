@@ -15,7 +15,7 @@ type CollectFn func(ctx context.Context) (map[string]any, []output.Warning)
 type App struct {
 	app              *tview.Application
 	pages            *tview.Pages
-	mainFlex         *tview.Flex
+
 	collectFn        CollectFn
 	interval         time.Duration
 	allProcesses     bool
@@ -64,9 +64,14 @@ func NewApp(interval time.Duration, allProcesses bool, bgNetHistory bool, collec
 	return a
 }
 
-func (a *App) Run() error {
-	ctx, cancel := context.WithCancel(context.Background())
+func (a *App) Run(parentCtx context.Context) error {
+	ctx, cancel := context.WithCancel(parentCtx)
 	defer cancel()
+
+	go func() {
+		<-ctx.Done()
+		a.app.Stop()
+	}()
 
 	go func() {
 		// Initial fetch
