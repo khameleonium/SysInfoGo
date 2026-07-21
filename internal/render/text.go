@@ -214,10 +214,24 @@ func (f *TextFormatter) formatStorage(b *strings.Builder, section any) {
 	}
 
 	b.WriteString(f.sectionTitle("НАКОПИТЕЛИ"))
+	diskIdx := 0
 	for _, d := range info.Disks {
 		if d.IsRAMDisk {
 			f.formatRAMDisk(b, d)
 			continue
+		}
+
+		letterTag := ""
+		if diskIdx < 26 {
+			letterTag = fmt.Sprintf("%c)", 'a'+diskIdx)
+		} else {
+			letterTag = fmt.Sprintf("%d)", diskIdx+1)
+		}
+		diskIdx++
+
+		tagStr := output.ColorGreen + letterTag + output.ColorReset
+		if !f.UseColor {
+			tagStr = letterTag
 		}
 
 		mediaTag := ""
@@ -231,7 +245,7 @@ func (f *TextFormatter) formatStorage(b *strings.Builder, section any) {
 		if d.RPM > 0 {
 			hdr += fmt.Sprintf(" | %d RPM", d.RPM)
 		}
-		b.WriteString(fmt.Sprintf("  %s  %s\n", f.label("Диск:"), hdr))
+		b.WriteString(fmt.Sprintf("  %s %s\n", tagStr, hdr))
 
 		if d.Serial != "" {
 			b.WriteString(fmt.Sprintf("    %s %s", locale.T("Серийный номер:"), d.Serial))

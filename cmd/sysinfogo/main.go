@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -29,7 +30,7 @@ import (
 	"github.com/user/sysinfogo/internal/web"
 )
 
-const version = "1.1.0"
+const version = "1.2.0"
 
 var (
 	flagCPU          bool
@@ -59,15 +60,17 @@ var (
 	flagHTML         string
 	flagInitConfig   bool
 	flagInitLocale   bool
+	flagSmart        string
 )
 
 func init() {
 	cfg := loadConfig()
 
-	// Load locale using config's language if needed, but locale loads from JSON which has its own defaults.
-	if err := locale.Load(); err != nil {
-		fmt.Fprintf(os.Stderr, "locale load error: %v\n", err)
-	}
+	// Load locale silently (optional file)
+	_ = locale.Load()
+
+	flag.StringVar(&flagSmart, "smart", "", "")
+	flag.StringVar(&flagSmart, "sm", "", "")
 
 	flag.BoolVar(&flagCPU, "cpu", false, "")
 	flag.BoolVar(&flagCPU, "c", false, "")
@@ -128,6 +131,20 @@ func init() {
 
 func main() {
 	enableVTProcessing()
+
+	newArgs := make([]string, 0, len(os.Args))
+	for i := 0; i < len(os.Args); i++ {
+		arg := os.Args[i]
+		if arg == "-smart" || arg == "--smart" || arg == "-sm" {
+			if i+1 >= len(os.Args) || strings.HasPrefix(os.Args[i+1], "-") {
+				newArgs = append(newArgs, "-smart=all")
+				continue
+			}
+		}
+		newArgs = append(newArgs, arg)
+	}
+	os.Args = newArgs
+
 	flag.Parse()
 
 	if flagHelp {
@@ -162,6 +179,11 @@ func main() {
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+
+	if flagSmart != "" {
+		runSmart(ctx, flagSmart)
+		return
+	}
 
 	if flagWatch {
 		runWatch(ctx, noColor)
@@ -404,13 +426,14 @@ func usage() {
 	b.WriteString("  -c, --cpu          " + t("Информация о процессоре") + "\n")
 	b.WriteString("  -r, --ram          " + t("Информация об оперативной памяти") + "\n")
 	b.WriteString("  -s, --storage      " + t("Накопители и S.M.A.R.T.") + "\n")
+	b.WriteString("  -sm, --smart [id]  " + t("Полная SMART-информация накопителя (например: -smart a, -smart 0)") + "\n")
 	b.WriteString("  -g, --gpu          " + t("Информация о видеоадаптерах") + "\n")
 	b.WriteString("  -n, --network      " + t("Сетевые интерфейсы и статистика") + "\n")
 	b.WriteString("  -m, --motherboard  " + t("Материнская плата и BIOS/UEFI") + "\n")
 	b.WriteString("  -p, --processes    " + t("Топ процессов по CPU и RAM") + "\n")
 	b.WriteString("      --all-processes " + t("Отобразить все процессы (вместо топ 10)") + "\n")
 	b.WriteString("  --init-config      " + t("Создать файл sysinfogo_config.json со значениями по умолчанию") + "\n")
-	b.WriteString("  --init-locale      " + t("Создать файл sysinfogo_locale.json со словарём по умолчанию") + "\n")
+	b.WriteString("  --init-locale      " + t("Создать файл sysinfogo_locale.json со словарём (опционально)") + "\n")
 	b.WriteString("  -b, --battery      " + t("Информация о батарее") + "\n")
 	b.WriteString("  -w, --watch        " + t("Режим реального времени") + "\n")
 	b.WriteString("  -t, --tui          " + t("Интерактивный TUI дашборд") + "\n")
@@ -426,9 +449,87 @@ func usage() {
 	b.WriteString("      --version      " + t("Версия утилиты") + "\n\n")
 	b.WriteString(t("Примеры:") + "\n")
 	b.WriteString("  sysinfogo                    " + t("# Сводка") + "\n")
+	b.WriteString("  sysinfogo -s                 " + t("# Список накопителей с индексами [a], [b]") + "\n")
+	b.WriteString("  sysinfogo -smart a           " + t("# SMART-отчёт для накопителя [a]") + "\n")
 	b.WriteString("  sysinfogo --cpu --ram        " + t("# CPU и RAM") + "\n")
 	b.WriteString("  sysinfogo -a --json          " + t("# Все разделы в JSON") + "\n")
 	b.WriteString("  sysinfogo -w --interval 5s   " + t("# Watch каждые 5с") + "\n")
 	b.WriteString("  sysinfogo -c -g -w --log s.log  " + t("# CPU+GPU в watch с логом") + "\n")
 	fmt.Print(b.String())
+}
+
+func runSmart(ctx context.Context, target string) {
+	sInfo, _, err := storage.Collect(ctx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Ошибка сбора информации о накопителях: %v\n", err)
+		os.Exit(1)
+	}
+
+	var nonRAMDisks []storage.DiskInfo
+	for _, d := range sInfo.Disks {
+		if !d.IsRAMDisk {
+			nonRAMDisks = append(nonRAMDisks, d)
+		}
+	}
+
+	if len(nonRAMDisks) == 0 {
+		fmt.Println("Накопители не обнаружены.")
+		return
+	}
+
+	t := strings.ToLower(strings.TrimSpace(target))
+
+	if t == "all" {
+		for i, d := range nonRAMDisks {
+			letter := fmt.Sprintf("[%c]", 'a'+i)
+			fmt.Printf("=== Накопитель %s: %s ===\n", letter, d.Model)
+			fmt.Println(storage.GetSmartReport(ctx, d))
+		}
+		return
+	}
+
+	var targetDisk *storage.DiskInfo
+
+	if len(t) == 1 && t[0] >= 'a' && t[0] <= 'z' {
+		idx := int(t[0] - 'a')
+		if idx >= 0 && idx < len(nonRAMDisks) {
+			targetDisk = &nonRAMDisks[idx]
+		}
+	}
+
+	if targetDisk == nil {
+		if idx, err := strconv.Atoi(t); err == nil {
+			if idx >= 0 && idx < len(nonRAMDisks) {
+				targetDisk = &nonRAMDisks[idx]
+			}
+		}
+	}
+
+	if targetDisk == nil {
+		for i, d := range nonRAMDisks {
+			if strings.EqualFold(d.DeviceName, t) || strings.EqualFold("/dev/"+d.DeviceName, t) {
+				targetDisk = &nonRAMDisks[i]
+				break
+			}
+			for _, p := range d.Partitions {
+				pName := strings.TrimRight(strings.TrimRight(p.MountPoint, `\`), `:`)
+				if strings.EqualFold(pName, t) || strings.EqualFold(p.MountPoint, t) {
+					targetDisk = &nonRAMDisks[i]
+					break
+				}
+			}
+		}
+	}
+
+	if targetDisk == nil {
+		fmt.Printf("Накопитель \"%s\" не найден.\n\n", target)
+		fmt.Println("Доступные накопители:")
+		for i, d := range nonRAMDisks {
+			fmt.Printf("  [%c] %s (%.1f GB)\n", 'a'+i, d.Model, d.SizeGB)
+		}
+		fmt.Println("\nПример использования: sysinfogo -smart a")
+		return
+	}
+
+	fmt.Println(storage.GetSmartReport(ctx, *targetDisk))
 }

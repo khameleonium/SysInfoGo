@@ -1,9 +1,68 @@
 package storage
 
 import (
+	"context"
 	"fmt"
+	"os/exec"
+	"runtime"
 	"strings"
+	"time"
 )
+
+// GetSmartReport returns full SMART output using smartctl or internal fallback.
+func GetSmartReport(ctx context.Context, d DiskInfo) string {
+	if d.DeviceName == "" {
+		return "Ошибка: не указано имя устройства для SMART."
+	}
+
+	cmdCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	var out []byte
+	var err error
+	if runtime.GOOS == "windows" {
+		out, err = exec.CommandContext(cmdCtx, "smartctl", "-a", "/dev/"+d.DeviceName).CombinedOutput()
+	} else {
+		out, err = exec.CommandContext(cmdCtx, "smartctl", "-a", d.DeviceName).CombinedOutput()
+	}
+
+	if err == nil && len(out) > 0 {
+		return string(out)
+	}
+
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("=== S.M.A.R.T. Отчёт: %s (%s) ===\n", d.Model, d.DeviceName))
+	b.WriteString(fmt.Sprintf("Здоровье (Health): %s (%.0f%%)\n", d.Health, d.HealthPct))
+	if d.TempC > 0 {
+		b.WriteString(fmt.Sprintf("Температура: %.0f °C\n", d.TempC))
+	}
+	if d.PowerOnHrs > 0 {
+		b.WriteString(fmt.Sprintf("Время работы: %d ч.\n", d.PowerOnHrs))
+	}
+	if d.ReallocSec > 0 {
+		b.WriteString(fmt.Sprintf("Переназначенные сектора: %d\n", d.ReallocSec))
+	}
+	if d.WearoutPct > 0 {
+		b.WriteString(fmt.Sprintf("Износ: %.0f%%\n", d.WearoutPct))
+	}
+	if len(d.SMART) > 0 {
+		b.WriteString("\nИндикаторы SMART:\n")
+		for _, ind := range d.SMART {
+			status := "OK"
+			if ind.IsWarning {
+				status = "ВНИМАНИЕ"
+			}
+			b.WriteString(fmt.Sprintf("  - %-25s: %-15s [%s]\n", ind.Name, ind.RawValue, status))
+		}
+	}
+	b.WriteString("\n--------------------------------------------------\n")
+	b.WriteString("Примечание: Для получения подробного отчета установите smartmontools:\n")
+	b.WriteString("  Windows: choco install smartmontools\n")
+	b.WriteString("  Linux:   sudo apt-get install smartmontools\n")
+	b.WriteString("  macOS:   brew install smartmontools\n")
+
+	return b.String()
+}
 
 func parseSmartOutput(raw string, d *DiskInfo) {
 	lines := strings.Split(raw, "\n")
