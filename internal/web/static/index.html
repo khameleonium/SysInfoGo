@@ -36,42 +36,43 @@
         </header>
 
         <main class="grid-container" id="grid-container">
-            <!-- Summary -->
+            <!-- Row 1: Summary, CPU & RAM (combined), GPU, Battery -->
             <div class="card" id="card-summary" style="display: none;">
                 <div class="card-header" data-i18n="Сводка">Сводка</div>
                 <div class="card-body" id="content-summary"></div>
             </div>
-            <!-- CPU -->
-            <div class="card" id="card-cpu" style="display: none;">
-                <div class="card-header" data-i18n="Процессор">Процессор</div>
-                <div class="card-body" id="content-cpu"></div>
+
+            <div class="card" id="card-cpuram" style="display: none;">
+                <div class="card-header" data-i18n="Процессор и ОЗУ">Процессор и ОЗУ</div>
+                <div class="card-body">
+                    <div id="content-cpu"></div>
+                    <div style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px dashed var(--card-border);" id="content-memory"></div>
+                </div>
             </div>
-            <!-- Memory -->
-            <div class="card" id="card-memory" style="display: none;">
-                <div class="card-header" data-i18n="Оперативная память">Оперативная память</div>
-                <div class="card-body" id="content-memory"></div>
-            </div>
-            <!-- GPU -->
+
             <div class="card" id="card-gpu" style="display: none;">
                 <div class="card-header" data-i18n="Видеокарта">Видеокарта</div>
                 <div class="card-body" id="content-gpu"></div>
             </div>
-            <!-- Network -->
-            <div class="card" id="card-network" style="display: none;">
-                <div class="card-header" data-i18n="Сеть">Сеть</div>
-                <div class="card-body" id="content-network"></div>
-            </div>
-            <!-- Battery -->
+
             <div class="card" id="card-battery" style="display: none;">
                 <div class="card-header" data-i18n="Батарея">Батарея</div>
                 <div class="card-body" id="content-battery"></div>
             </div>
-            <!-- Processes -->
+
+            <!-- Row 2: Network (Full Width) -->
+            <div class="card card-wide" id="card-network" style="display: none;">
+                <div class="card-header" data-i18n="Сеть">Сеть</div>
+                <div class="card-body network-grid" id="content-network"></div>
+            </div>
+
+            <!-- Row 3: Processes (Full Width) -->
             <div class="card card-wide" id="card-processes" style="display: none;">
                 <div class="card-header" data-i18n="Процессы">Процессы</div>
                 <div class="card-body" id="content-processes"></div>
             </div>
-            <!-- Storage -->
+
+            <!-- Row 4: Storage (Full Width) -->
             <div class="card card-wide" id="card-storage" style="display: none;">
                 <div class="card-header" data-i18n="Накопители">Накопители</div>
                 <div class="card-body storage-grid" id="content-storage"></div>

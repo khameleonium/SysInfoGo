@@ -35,6 +35,7 @@ type App struct {
 	headerWidget    *tview.TextView
 	summaryWidget   *tview.TextView
 	cpuWidget       *tview.TextView
+	gpuWidget       *tview.TextView
 	memoryWidget    *tview.TextView
 	processesWidget *tview.Table
 	storageWidget   *tview.Table

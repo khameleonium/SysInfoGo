@@ -12,6 +12,9 @@ import (
 	"github.com/shirou/gopsutil/v4/disk"
 	"github.com/shirou/gopsutil/v4/host"
 	"github.com/shirou/gopsutil/v4/mem"
+	cpuPkg "github.com/user/sysinfogo/internal/cpu"
+	"github.com/user/sysinfogo/internal/gpu"
+	"github.com/user/sysinfogo/internal/memory"
 	"github.com/user/sysinfogo/internal/output"
 )
 
@@ -58,12 +61,32 @@ func collect(ctx context.Context) (*Info, []output.Warning, error) {
 		info.RAMUsedGB = float64(memInfo.Used) / (1024 * 1024 * 1024)
 	}
 
+	if memDetails, _, _ := memory.Collect(ctx); memDetails != nil && memDetails.Spec != "" {
+		info.RAMType = memDetails.Spec
+	}
+
 	if len(cpuInfos) > 0 {
 		info.CPUModel = cpuInfos[0].ModelName
 		physical, _ := cpu.CountsWithContext(ctx, false)
 		logical, _ := cpu.CountsWithContext(ctx, true)
 		info.CPUCores = physical
 		info.CPULogical = logical
+	}
+
+	if cpuDetails, _, _ := cpuPkg.Collect(ctx); cpuDetails != nil && cpuDetails.PackageTemp > 0 {
+		info.CPUTempC = cpuDetails.PackageTemp
+	}
+
+	if gpuInfo, _, _ := gpu.Collect(ctx); gpuInfo != nil && len(gpuInfo.GPUs) > 0 {
+		info.GPUModel = gpuInfo.GPUs[0].Name
+		for _, g := range gpuInfo.GPUs {
+			info.GPUs = append(info.GPUs, GPUSummary{
+				Name:       g.Name,
+				VRAMMB:     g.VRAMMB,
+				TempC:      g.TempC,
+				GPULoadPct: g.GPULoadPct,
+			})
+		}
 	}
 
 	var storages []StorageSummary

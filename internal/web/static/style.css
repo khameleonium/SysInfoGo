@@ -177,10 +177,17 @@ body {
 .bg-danger { background-color: var(--danger); }
 .bg-accent { background-color: var(--accent-blue); }
 
-.storage-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-    gap: 1.5rem;
+.network-grid, .storage-grid {
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: wrap !important;
+    gap: 1.25rem !important;
+    width: 100% !important;
+}
+
+.network-grid .sub-card, .storage-grid .sub-card {
+    flex: 1 1 280px !important;
+    min-width: 260px !important;
 }
 
 .sub-card {

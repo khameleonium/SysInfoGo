@@ -9,6 +9,7 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
+	"github.com/user/sysinfogo/internal/gpu"
 	"github.com/user/sysinfogo/internal/locale"
 	"github.com/user/sysinfogo/internal/storage"
 )
@@ -73,5 +74,67 @@ func (a *App) showSmartData(deviceName, model string) {
 	})
 
 	a.pages.AddPage("smart_modal", popup, true, true)
+	a.app.SetFocus(flex)
+}
+
+func (a *App) showDisplaysData() {
+	T := locale.T
+
+	tv := tview.NewTextView().
+		SetDynamicColors(true).
+		SetScrollable(true).
+		SetWrap(true)
+
+	tv.SetBorder(true).
+		SetTitle(fmt.Sprintf(" %s ", T("Подключенные Дисплеи и Мониторы"))).
+		SetTitleColor(tcell.ColorGreen)
+
+	var txt string
+	if a.lastData != nil {
+		if gInfo, ok := a.lastData["gpu"].(*gpu.Info); ok && len(gInfo.Displays) > 0 {
+			for i, d := range gInfo.Displays {
+				tag := "[green]Физический[white]"
+				if d.IsVirtual {
+					tag = "[yellow]Виртуальный/Софтверный[white]"
+				}
+				resStr := d.Resolution
+				if d.RefreshRate > 0 {
+					resStr += fmt.Sprintf(" @ %dHz", d.RefreshRate)
+				}
+				txt += fmt.Sprintf("[yellow]%d. %s[white]\n", i+1, d.Name)
+				if resStr != "" {
+					txt += fmt.Sprintf("   Разрешение: %s\n", resStr)
+				}
+				txt += fmt.Sprintf("   Тип: %s\n\n", tag)
+			}
+		}
+	}
+	if txt == "" {
+		txt = "Информация о дисплеях отсутствует."
+	}
+	tv.SetText(txt)
+
+	flex := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(tv, 0, 1, true).
+		AddItem(tview.NewTextView().SetText(" Esc / Enter - "+T("Закрыть")).SetTextAlign(tview.AlignCenter).SetTextColor(tcell.ColorYellow), 1, 1, false)
+
+	popup := tview.NewFlex().
+		AddItem(nil, 0, 1, false).
+		AddItem(tview.NewFlex().SetDirection(tview.FlexRow).
+			AddItem(nil, 0, 1, false).
+			AddItem(flex, 0, 8, true).
+			AddItem(nil, 0, 1, false), 0, 8, true).
+		AddItem(nil, 0, 1, false)
+
+	flex.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if event.Key() == tcell.KeyEscape || event.Key() == tcell.KeyEnter {
+			a.pages.RemovePage("displays_modal")
+			a.app.SetFocus(a.gpuWidget)
+			return nil
+		}
+		return event
+	})
+
+	a.pages.AddPage("displays_modal", popup, true, true)
 	a.app.SetFocus(flex)
 }

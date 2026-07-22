@@ -28,6 +28,7 @@ import (
 var staticFS embed.FS
 
 type Server struct {
+	host      string
 	port      string
 	collect   func(ctx context.Context) (map[string]any, []output.Warning)
 	dataMutex sync.RWMutex
@@ -47,8 +48,9 @@ type serverState struct {
 	DiskWrite map[string]uint64
 }
 
-func NewServer(port string, bgNetHistory bool, collect func(ctx context.Context) (map[string]any, []output.Warning)) *Server {
+func NewServer(host string, port string, bgNetHistory bool, collect func(ctx context.Context) (map[string]any, []output.Warning)) *Server {
 	return &Server{
+		host:         host,
 		port:         port,
 		collect:      collect,
 		bgNetHistory: bgNetHistory,
@@ -86,8 +88,13 @@ func (s *Server) Start(ctx context.Context, interval time.Duration) error {
 	mux.HandleFunc("/api/export/csv", s.handleExportCSV)
 	mux.HandleFunc("/api/export/html", s.handleExportHTML)
 
+	bindAddr := s.host + ":" + s.port
+	if s.host == "" {
+		bindAddr = ":" + s.port
+	}
+
 	server := &http.Server{
-		Addr:    ":" + s.port,
+		Addr:    bindAddr,
 		Handler: mux,
 	}
 
@@ -98,7 +105,14 @@ func (s *Server) Start(ctx context.Context, interval time.Duration) error {
 		server.Shutdown(shutdownCtx)
 	}()
 
-	fmt.Printf("Web Dashboard is running at http://localhost:%s\n", s.port)
+	displayHost := s.host
+	if displayHost == "0.0.0.0" || displayHost == "" {
+		displayHost = "localhost"
+	}
+	fmt.Printf("Web Dashboard is running at http://%s:%s\n", displayHost, s.port)
+	if s.host == "127.0.0.1" {
+		fmt.Println("(Режим: Чисто локальный доступ / Localhost only)")
+	}
 	fmt.Println("Press Ctrl+C to stop.")
 
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {

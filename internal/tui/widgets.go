@@ -8,6 +8,7 @@ import (
 	"github.com/rivo/tview"
 	"github.com/user/sysinfogo/internal/battery"
 	"github.com/user/sysinfogo/internal/cpu"
+	"github.com/user/sysinfogo/internal/gpu"
 	mem "github.com/user/sysinfogo/internal/memory"
 	"github.com/user/sysinfogo/internal/network"
 	"github.com/user/sysinfogo/internal/processes"
@@ -15,29 +16,141 @@ import (
 	"github.com/user/sysinfogo/internal/summary"
 )
 
+func makeProgressBar(pct float64, width int) string {
+	if pct < 0 {
+		pct = 0
+	}
+	if pct > 100 {
+		pct = 100
+	}
+	filled := int((pct / 100.0) * float64(width))
+	if filled > width {
+		filled = width
+	}
+	bar := ""
+	for i := 0; i < filled; i++ {
+		bar += "█"
+	}
+	for i := filled; i < width; i++ {
+		bar += "░"
+	}
+	color := "[green]"
+	if pct >= 85 {
+		color = "[red]"
+	} else if pct >= 65 {
+		color = "[yellow]"
+	}
+	return fmt.Sprintf("%s[%s][white] %.1f%%", color, bar, pct)
+}
+
 func (a *App) updateWidgets(data map[string]any) {
 	if s, ok := data["summary"].(*summary.Info); ok {
-		a.headerWidget.SetText(fmt.Sprintf("[green::b]SysInfoGo[white] | %s | %s | %s | Uptime: %s",
+		a.headerWidget.SetText(fmt.Sprintf("[green::b]SysInfoGo[white] | Host: %s | OS: %s | %s | Uptime: %s",
 			s.Hostname, s.OS, time.Now().Format("15:04:05"), s.Uptime))
 
-		a.summaryWidget.SetText(fmt.Sprintf(
-			"[green]OS:[white] %s\n[green]Kernel:[white] %s\n[green]Arch:[white] %s\n[green]Boot:[white] %s\n",
-			s.OS, s.Kernel, s.Arch, s.BootTime,
-		))
+		sumTxt := fmt.Sprintf(
+			"[green]OS:[white] %s\n[green]Kernel:[white] %s\n[green]Arch:[white] %s\n[green]Host:[white] %s\n[green]Uptime:[white] %s\n[green]Boot:[white] %s\n",
+			s.OS, s.Kernel, s.Arch, s.Hostname, s.Uptime, s.BootTime,
+		)
+		if s.Motherboard != "" {
+			sumTxt += fmt.Sprintf("[green]Motherboard:[white] %s\n", s.Motherboard)
+		}
+		if s.Virtualization != "" {
+			sumTxt += fmt.Sprintf("[green]Virtualization:[white] %s\n", s.Virtualization)
+		}
+		a.summaryWidget.SetText(sumTxt)
 	}
 
 	if c, ok := data["cpu"].(*cpu.Info); ok {
+		cpuBar := makeProgressBar(c.UsagePercent, 14)
+		tempText := "N/A (no sensor access)"
+		if c.PackageTemp > 0 {
+			tempText = fmt.Sprintf("%.1f°C", c.PackageTemp)
+		}
 		a.cpuWidget.SetText(fmt.Sprintf(
-			"[green]Model:[white] %s\n[green]Usage:[white] %.1f%%\n[green]Temp:[white] %.1f°C\n[green]Cores:[white] %d Physical / %d Logical\n",
-			c.Model, c.UsagePercent, c.PackageTemp, c.PhysicalCores, c.LogicalCores,
+			"[green]Model:[white] %s\n[green]Cores:[white] %d physical / %d logical\n[green]Usage:[white] %s\n[green]Temp:[white] %s\n",
+			c.Model, c.PhysicalCores, c.LogicalCores, cpuBar, tempText,
 		))
 	}
 
+	if g, ok := data["gpu"].(*gpu.Info); ok && len(g.GPUs) > 0 {
+		var txt string
+		count := 0
+		for _, item := range g.GPUs {
+			if item.IsVirtual {
+				continue
+			}
+			count++
+			txt += fmt.Sprintf("[green]Model:[white] %s\n", item.Name)
+			if item.VRAMMB > 0 {
+				txt += fmt.Sprintf("[green]VRAM:[white] %d MB", item.VRAMMB)
+			}
+			if item.TempC > 0 {
+				txt += fmt.Sprintf(" | [green]Temp:[white] %.0f°C", item.TempC)
+			}
+			if item.GPULoadPct > 0 {
+				gpuBar := makeProgressBar(item.GPULoadPct, 12)
+				txt += fmt.Sprintf("\n[green]Load:[white] %s", gpuBar)
+			}
+			txt += "\n"
+		}
+		if len(g.Displays) > 0 {
+			txt += fmt.Sprintf("\n[yellow]Дисплеи (%d):[white]\n", len(g.Displays))
+			for _, d := range g.Displays {
+				resStr := d.Resolution
+				if d.RefreshRate > 0 {
+					resStr += fmt.Sprintf(" @ %dHz", d.RefreshRate)
+				}
+				tag := ""
+				if d.IsVirtual {
+					tag = " [Вирт]"
+				}
+				txt += fmt.Sprintf(" • %s %s%s\n", d.Name, resStr, tag)
+			}
+		}
+		if count == 0 {
+			txt = "[yellow]Physical GPU not detected[white]"
+		}
+		a.gpuWidget.SetText(txt)
+	} else if s, ok := data["summary"].(*summary.Info); ok && (len(s.GPUs) > 0 || s.GPUModel != "") {
+		if len(s.GPUs) > 0 {
+			gItem := s.GPUs[0]
+			txt := fmt.Sprintf("[green]Model:[white] %s\n", gItem.Name)
+			if gItem.VRAMMB > 0 {
+				txt += fmt.Sprintf("[green]VRAM:[white] %d MB", gItem.VRAMMB)
+			}
+			if gItem.TempC > 0 {
+				txt += fmt.Sprintf(" | [green]Temp:[white] %.0f°C", gItem.TempC)
+			}
+			if gItem.GPULoadPct > 0 {
+				gpuBar := makeProgressBar(gItem.GPULoadPct, 12)
+				txt += fmt.Sprintf("\n[green]Load:[white] %s", gpuBar)
+			}
+			a.gpuWidget.SetText(txt)
+		} else {
+			a.gpuWidget.SetText(fmt.Sprintf("[green]Model:[white] %s\n", s.GPUModel))
+		}
+	} else {
+		a.gpuWidget.SetText("GPU data unavailable")
+	}
+
 	if m, ok := data["memory"].(*mem.Info); ok {
-		a.memoryWidget.SetText(fmt.Sprintf(
-			"[green]Total:[white] %.1f GB\n[green]Used:[white] %.1f GB (%.1f%%)\n[green]Free:[white] %.1f GB\n",
-			m.TotalGB, m.UsedGB, m.UsagePercent, m.FreeGB,
-		))
+		ramBar := makeProgressBar(m.UsagePercent, 14)
+		specStr := m.Spec
+		if specStr == "" && m.Type != "" {
+			specStr = m.FormFactor + " " + m.Type
+			if m.SpeedMTs > 0 {
+				specStr += fmt.Sprintf("-%d", m.SpeedMTs)
+			}
+		}
+		memTxt := fmt.Sprintf(
+			"[green]Total:[white] %.1f GB | [green]Used:[white] %.1f GB\n[green]Usage:[white] %s\n",
+			m.TotalGB, m.UsedGB, ramBar,
+		)
+		if specStr != "" {
+			memTxt += fmt.Sprintf("[green]Spec:[white] %s\n", specStr)
+		}
+		a.memoryWidget.SetText(memTxt)
 	}
 
 	if b, ok := data["battery"].(*battery.Info); ok {

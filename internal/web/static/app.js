@@ -66,13 +66,16 @@ function renderData(data) {
     currentData = data;
     if (data.summary) renderHeader(data);
     if (data.summary) renderSummary(data.summary);
-    if (data.cpu) renderCPU(data.cpu);
-    if (data.memory) renderMemory(data.memory);
+    if (data.cpu || data.memory) {
+        document.getElementById('card-cpuram').style.display = 'flex';
+        if (data.cpu) renderCPU(data.cpu);
+        if (data.memory) renderMemory(data.memory);
+    }
     if (data.gpu) renderGPU(data.gpu);
-    if (data.network) renderNetwork(data.network);
     if (data.battery) renderBattery(data.battery);
-    if (data.storage) renderStorage(data.storage);
+    if (data.network) renderNetwork(data.network);
     if (data.processes) renderProcesses(data.processes);
+    if (data.storage) renderStorage(data.storage);
     
     if (data.network && window.activeNetGraph) {
         let iface = data.network.interfaces.find(i => i.name === window.activeNetGraph);
@@ -128,42 +131,58 @@ function progressBar(pct, labelLeft, labelRight) {
 function renderSummary(summary) {
     const el = document.getElementById('content-summary');
     document.getElementById('card-summary').style.display = 'flex';
-    let html = kvPair(T('Хост'), summary.hostname);
-    if (summary.virtualization) {
-        html += kvPair(T('Виртуализация'), summary.virtualization, 'color-accent');
-    }
-    if (summary.motherboard) {
-        html += kvPair(T('Материнская плата'), summary.motherboard);
-    }
-    html += kvPair(T('Ядро'), summary.kernel);
-    html += kvPair(T('Процессор'), summary.cpu_model);
+    let html = kvPair(T('Система'), summary.os);
+    if (summary.kernel) html += kvPair(T('Ядро'), summary.kernel);
+    if (summary.arch) html += kvPair(T('Архитектура'), summary.arch);
+    if (summary.hostname) html += kvPair(T('Хост'), summary.hostname);
+    if (summary.uptime) html += kvPair(T('Uptime'), summary.uptime);
     if (summary.boot_time) html += kvPair(T('Запуск'), summary.boot_time);
-    html += kvPair('RAM', formatGB(summary.ram_total_gb));
+    if (summary.motherboard) html += kvPair(T('Материнская плата'), summary.motherboard);
+    if (summary.virtualization) html += kvPair(T('Виртуализация'), summary.virtualization, 'color-accent');
+    if (summary.primary_ip) html += kvPair('IP', summary.primary_ip);
     
     el.innerHTML = html;
 }
 
 function renderCPU(cpu) {
     const el = document.getElementById('content-cpu');
-    document.getElementById('card-cpu').style.display = 'flex';
     let html = kvPair(T('Модель'), cpu.model);
     html += kvPair(T('Архитектура'), cpu.architecture || cpu.vendor);
     if (cpu.current_speed_ghz > 0) html += kvPair(T('Частота'), cpu.current_speed_ghz.toFixed(2) + ' GHz');
     if (cpu.package_temp > 0) {
         const color = cpu.package_temp > 80 ? 'color-danger' : (cpu.package_temp > 65 ? 'color-warn' : 'color-ok');
         html += kvPair(T('Температура'), cpu.package_temp.toFixed(1) + ' °C', color);
+    } else {
+        html += kvPair(T('Температура'), 'N/A <span style="font-size:0.75rem; color:var(--text-secondary);">(нет доступа к датчику)</span>');
     }
-    html += progressBar(cpu.usage_percent, T('Общая загрузка'), '');
+    html += progressBar(cpu.usage_percent, T('Загрузка CPU'), '');
     el.innerHTML = html;
 }
 
 function renderMemory(mem) {
     const el = document.getElementById('content-memory');
-    document.getElementById('card-memory').style.display = 'flex';
-    let html = progressBar(mem.usage_percent, T('ОЗУ'), `${formatGB(mem.used_gb)} / ${formatGB(mem.total_gb)}`);
+    let html = '';
+    if (mem.spec) {
+        html += kvPair(T('Спецификация ОЗУ'), mem.spec, 'color-accent');
+    } else {
+        if (mem.form_factor || mem.type) {
+            let spec = `${mem.form_factor || ''} ${mem.type || ''}`.trim();
+            if (mem.speed_mts > 0) spec += `-${mem.speed_mts}`;
+            html += kvPair(T('Тип ОЗУ'), spec, 'color-accent');
+        }
+    }
+    html += progressBar(mem.usage_percent, T('Загрузка ОЗУ'), `${formatGB(mem.used_gb)} / ${formatGB(mem.total_gb)}`);
     if (mem.swap_total_gb > 0) {
         const swapPct = (mem.swap_used_gb / mem.swap_total_gb) * 100;
         html += progressBar(swapPct, 'Swap', `${formatGB(mem.swap_used_gb)} / ${formatGB(mem.swap_total_gb)}`);
+    }
+    if (mem.slots && mem.slots.length > 0) {
+        html += `<div style="margin-top: 0.5rem; font-size: 0.8rem;"><strong>${T('Слоты')} (${mem.used_slots || mem.slots.length}/${mem.total_slots || mem.slots.length}):</strong><ul style="padding-left: 1.2rem; margin-top: 0.25rem;">`;
+        mem.slots.forEach(s => {
+            let details = [s.form_factor, s.type, s.speed_mts ? s.speed_mts + ' MT/s' : '', s.model ? `(${s.model})` : ''].filter(Boolean).join(' ');
+            html += `<li>${s.locator || 'Slot'}: ${s.manufacturer || ''} ${s.size_gb} GB ${details}</li>`;
+        });
+        html += `</ul></div>`;
     }
     el.innerHTML = html;
 }
@@ -173,7 +192,11 @@ function renderGPU(gpu) {
     document.getElementById('card-gpu').style.display = 'flex';
     const el = document.getElementById('content-gpu');
     let html = '';
-    gpu.gpus.forEach(g => {
+    
+    const physicalGPUs = gpu.gpus.filter(g => !g.is_virtual);
+    const targetGPUs = physicalGPUs.length > 0 ? physicalGPUs : gpu.gpus;
+
+    targetGPUs.forEach(g => {
         html += `<div class="sub-card">`;
         html += `<div class="sub-card-title">${g.name}</div>`;
         if (g.vram_mb > 0) html += kvPair('VRAM', (g.vram_mb / 1024).toFixed(2) + ' GB');
@@ -184,8 +207,42 @@ function renderGPU(gpu) {
         if (g.gpu_load_pct > 0) html += progressBar(g.gpu_load_pct, T('Загрузка GPU'), '');
         html += `</div>`;
     });
+
+    if (gpu.displays && gpu.displays.length > 0) {
+        html += `<div style="margin-top: 0.5rem;">`;
+        html += `<button class="btn" style="width: 100%; text-align: center; background: rgba(59, 130, 246, 0.15); border-color: var(--accent-blue);" onclick="openDisplaysModal()">${T('Мониторы и Дисплеи')} (${gpu.displays.length})</button>`;
+        html += `</div>`;
+    }
+
     el.innerHTML = html;
 }
+
+window.openDisplaysModal = function() {
+    if (!currentData || !currentData.gpu || !currentData.gpu.displays) return;
+    const modalTitle = document.getElementById('modal-title');
+    const modalBody = document.getElementById('modal-body');
+    modalTitle.textContent = T('Подключенные Дисплеи и Мониторы');
+    
+    let html = '<div style="display: flex; flex-direction: column; gap: 0.75rem;">';
+    currentData.gpu.displays.forEach(d => {
+        let tag = d.is_virtual ? '<span class="color-warn">[Виртуальный/Софтверный]</span>' : '<span class="color-ok">[Физический]</span>';
+        html += `<div class="sub-card">`;
+        html += `<div class="sub-card-title">${d.name}</div>`;
+        if (d.resolution) {
+            let res = d.resolution;
+            if (d.refresh_rate > 0) res += ` @ ${d.refresh_rate}Hz`;
+            html += kvPair(T('Разрешение'), res);
+        }
+        html += kvPair(T('Тип'), tag);
+        if (d.gpu_name) html += kvPair('GPU', d.gpu_name);
+        html += `</div>`;
+    });
+    html += '</div>';
+    modalBody.innerHTML = html;
+
+    document.getElementById('modal-overlay').style.display = 'block';
+    document.getElementById('modal').style.display = 'flex';
+};
 
 function formatBytes(bytes) {
     if (!bytes || bytes === 0) return '0 B';
@@ -201,8 +258,9 @@ function renderNetwork(net) {
     document.getElementById('card-network').style.display = 'flex';
     let html = '';
     if (net.dns_servers && net.dns_servers.length > 0) {
-        html += kvPair('DNS', net.dns_servers.join(', '));
+        html += `<div style="width: 100%; margin-bottom: 0.5rem;">${kvPair('DNS', net.dns_servers.join(', '))}</div>`;
     }
+    html += '<div class="network-grid">';
     net.interfaces.forEach(iface => {
         html += `<div class="sub-card" style="cursor:pointer;" onclick="openNetGraph('${iface.name}')">`;
         html += `<div class="sub-card-title">${iface.name} <span class="color-ok">●</span></div>`;
@@ -214,6 +272,7 @@ function renderNetwork(net) {
         }
         html += `</div>`;
     });
+    html += '</div>';
     el.innerHTML = html;
 }
 
@@ -250,7 +309,7 @@ function renderStorage(storage) {
     if (!storage || !storage.disks) return;
     const el = document.getElementById('content-storage');
     document.getElementById('card-storage').style.display = 'flex';
-    let html = '';
+    let html = '<div class="storage-grid">';
     storage.disks.forEach(d => {
         html += `<div class="sub-card" style="cursor:pointer;" onclick="openSmart('${d.device_name}')">`;
         let tag = d.is_ramdisk ? 'RAM Disk' : (d.media_type || 'Disk');
@@ -290,6 +349,7 @@ function renderStorage(storage) {
 
         html += `</div>`;
     });
+    html += '</div>';
     el.innerHTML = html;
 }
 

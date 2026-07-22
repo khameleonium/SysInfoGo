@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"runtime"
 	"strconv"
+	"strings"
 
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/user/sysinfogo/internal/output"
@@ -61,24 +62,56 @@ func collect(ctx context.Context) (*Info, []output.Warning, error) {
 	}
 	info.MaxSpeedGHz = info.BaseSpeedGHz
 
+	rawProc := wmi.QueryList(ctx, "path", "Win32_Processor", "get", "L2CacheSize,L3CacheSize,MaxClockSpeed")
+	if rawProc != "" {
+		recs := wmi.ParseList(rawProc)
+		if len(recs) > 0 {
+			if l2, err := strconv.Atoi(recs[0]["L2CacheSize"]); err == nil && l2 > 0 {
+				info.CacheL2KB = l2
+			}
+			if l3, err := strconv.Atoi(recs[0]["L3CacheSize"]); err == nil && l3 > 0 {
+				info.CacheL3KB = l3
+			}
+			if maxMhz, err := strconv.Atoi(recs[0]["MaxClockSpeed"]); err == nil && maxMhz > 0 {
+				info.MaxSpeedGHz = float64(maxMhz) / 1000.0
+			}
+		}
+	}
+
 	collectTempWindows(ctx, info)
 
 	return info, warns, nil
 }
 
 func collectTempWindows(ctx context.Context, info *Info) {
-	raw := wmi.QueryList(ctx, "path", "MSAcpi_ThermalZoneTemperature", "get", "CurrentTemperature")
-	if raw == "" {
-		return
+	// 1. Try OpenHardwareMonitor / LibreHardwareMonitor WMI if running
+	for _, ns := range []string{"root\\OpenHardwareMonitor", "root\\LibreHardwareMonitor"} {
+		raw := wmi.QueryList(ctx, "path", ns+":Sensor", "get", "Name,Value,SensorType")
+		if raw != "" {
+			records := wmi.ParseList(raw)
+			for _, rec := range records {
+				if rec["SensorType"] == "Temperature" && (strings.Contains(strings.ToLower(rec["Name"]), "cpu package") || strings.Contains(strings.ToLower(rec["Name"]), "cpu core")) {
+					if val, err := strconv.ParseFloat(rec["Value"], 64); err == nil && val > 0 && val < 150 {
+						info.PackageTemp = val
+						return
+					}
+				}
+			}
+		}
 	}
-	records := wmi.ParseList(raw)
-	for _, rec := range records {
-		if tempStr, ok := rec["CurrentTemperature"]; ok && tempStr != "" {
-			if tempK10, err := strconv.Atoi(tempStr); err == nil && tempK10 > 0 {
-				celsius := (float64(tempK10) / 10.0) - 273.15
-				if celsius > 0 && celsius < 150 {
-					info.PackageTemp = celsius
-					return
+
+	// 2. Try MSAcpi_ThermalZoneTemperature
+	raw := wmi.QueryList(ctx, "path", "MSAcpi_ThermalZoneTemperature", "get", "CurrentTemperature")
+	if raw != "" {
+		records := wmi.ParseList(raw)
+		for _, rec := range records {
+			if tempStr, ok := rec["CurrentTemperature"]; ok && tempStr != "" {
+				if tempK10, err := strconv.Atoi(tempStr); err == nil && tempK10 > 0 {
+					celsius := (float64(tempK10) / 10.0) - 273.15
+					if celsius > 0 && celsius < 150 {
+						info.PackageTemp = celsius
+						return
+					}
 				}
 			}
 		}

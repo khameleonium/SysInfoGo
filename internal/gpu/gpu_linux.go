@@ -76,7 +76,7 @@ func collectNvidiaLinux(ctx context.Context, g *GPUInfo) []output.Warning {
 	defer cancel()
 
 	cmd := exec.CommandContext(smartCtx, "nvidia-smi",
-		"--query-gpu=name,temperature.gpu,utilization.gpu,utilization.memory,fan.speed,power.draw",
+		"--query-gpu=name,temperature.gpu,utilization.gpu,utilization.memory,fan.speed,power.draw,memory.total",
 		"--format=csv,noheader,nounits")
 	out, err := cmd.Output()
 	if err != nil {
@@ -108,6 +108,12 @@ func collectNvidiaLinux(ctx context.Context, g *GPUInfo) []output.Warning {
 	}
 	if len(fields) >= 6 {
 		fmt.Sscanf(strings.TrimSpace(fields[5]), "%f", &g.PowerWatts)
+	}
+	if len(fields) >= 7 {
+		var totalMB int
+		if _, err := fmt.Sscanf(strings.TrimSpace(fields[6]), "%d", &totalMB); err == nil && totalMB > 0 {
+			g.VRAMMB = totalMB
+		}
 	}
 
 	return nil

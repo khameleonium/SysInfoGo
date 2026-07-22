@@ -30,7 +30,7 @@ import (
 	"github.com/user/sysinfogo/internal/web"
 )
 
-const version = "1.2.0"
+const version = "1.4.0"
 
 var (
 	flagCPU          bool
@@ -57,6 +57,8 @@ var (
 	flagLogAppend    bool
 	flagWeb          bool
 	flagPort         string
+	flagHost         string
+	flagLocal        bool
 	flagHTML         string
 	flagInitConfig   bool
 	flagInitLocale   bool
@@ -119,6 +121,11 @@ func init() {
 	flag.BoolVar(&flagLogAppend, "log-append", false, "")
 	flag.BoolVar(&flagWeb, "web", false, "")
 	flag.StringVar(&flagPort, "port", cfg.WebPort, "")
+	flag.StringVar(&flagPort, "P", cfg.WebPort, "")
+	flag.StringVar(&flagHost, "host", "0.0.0.0", "")
+	flag.StringVar(&flagHost, "bind", "0.0.0.0", "")
+	flag.BoolVar(&flagLocal, "local", false, "")
+	flag.BoolVar(&flagLocal, "l", false, "")
 	flag.StringVar(&flagHTML, "html", "", "")
 	flag.BoolVar(&flagHelp, "help", false, "")
 	flag.BoolVar(&flagHelp, "h", false, "")
@@ -233,7 +240,24 @@ func main() {
 func runWeb(ctx context.Context) {
 	cfg := loadConfig()
 	sections := append([]string{"summary"}, allSections()...)
-	server := web.NewServer(flagPort, cfg.BackgroundNetworkHistory, func(reqCtx context.Context) (map[string]any, []output.Warning) {
+
+	hostAddr := flagHost
+	if flagLocal {
+		hostAddr = "127.0.0.1"
+	}
+	if hostAddr == "" {
+		hostAddr = "0.0.0.0"
+	}
+
+	portStr := flagPort
+	if portStr == "" {
+		portStr = cfg.WebPort
+	}
+	if portStr == "" {
+		portStr = "8080"
+	}
+
+	server := web.NewServer(hostAddr, portStr, cfg.BackgroundNetworkHistory, func(reqCtx context.Context) (map[string]any, []output.Warning) {
 		return collectSections(reqCtx, sections)
 	})
 	if err := server.Start(ctx, flagInterval); err != nil {
@@ -437,6 +461,10 @@ func usage() {
 	b.WriteString("  -b, --battery      " + t("Информация о батарее") + "\n")
 	b.WriteString("  -w, --watch        " + t("Режим реального времени") + "\n")
 	b.WriteString("  -t, --tui          " + t("Интерактивный TUI дашборд") + "\n")
+	b.WriteString("      --web          " + t("Запустить веб-сервер дашборда") + "\n")
+	b.WriteString("  -P, --port         " + t("Порт веб-сервера (по умолчанию 8080)") + "\n")
+	b.WriteString("      --host         " + t("Хост связывания веб-сервера (по умолчанию 0.0.0.0)") + "\n")
+	b.WriteString("  -l, --local        " + t("Запуск веб-сервера чисто локально (127.0.0.1)") + "\n")
 	b.WriteString("      --interval     " + t("Интервал обновления (по умолчанию 2s)") + "\n")
 	b.WriteString("  -j, --json         " + t("Вывод в формате JSON") + "\n")
 	b.WriteString("  -v, --verbose      " + t("Подробный вывод с диагностикой") + "\n")

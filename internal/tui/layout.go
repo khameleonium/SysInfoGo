@@ -55,6 +55,14 @@ func (a *App) initWidgets() {
 
 	a.summaryWidget = createBox(T("Сводка"))
 	a.cpuWidget = createBox(T("Процессор"))
+	a.gpuWidget = createBox(T("Видеокарта"))
+	a.gpuWidget.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if event.Key() == tcell.KeyEnter {
+			a.showDisplaysData()
+			return nil
+		}
+		return event
+	})
 	a.memoryWidget = createBox(T("Оперативная память"))
 	a.batteryWidget = createBox(T("Батарея"))
 
@@ -145,9 +153,13 @@ func (a *App) setupLayout() {
 	// Header spanning 3 columns
 	grid.AddItem(a.headerWidget, 0, 0, 1, 3, 0, 0, false)
 
-	// Middle1: Summary (col 0), CPU (col 1), Processes (col 2, span 2 rows)
+	// Middle1: Summary (col 0), CPU + GPU flex (col 1), Processes (col 2, span 2 rows)
+	cpuGpuFlex := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(a.cpuWidget, 0, 1, false).
+		AddItem(a.gpuWidget, 0, 1, false)
+
 	grid.AddItem(a.summaryWidget, 1, 0, 1, 1, 0, 0, false)
-	grid.AddItem(a.cpuWidget, 1, 1, 1, 1, 0, 0, false)
+	grid.AddItem(cpuGpuFlex, 1, 1, 1, 1, 0, 0, false)
 	grid.AddItem(a.processesWidget, 1, 2, 2, 1, 0, 0, true) // Processes is selectable
 
 	// Middle2: Memory (col 0), Network/Storage (col 1)
@@ -172,6 +184,7 @@ func (a *App) setupLayout() {
 		a.networkWidget,
 		a.summaryWidget,
 		a.cpuWidget,
+		a.gpuWidget,
 		a.memoryWidget,
 		a.batteryWidget,
 	}

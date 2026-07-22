@@ -106,17 +106,49 @@ func (f *TextFormatter) formatSummary(b *strings.Builder, section any) {
 		f.label("Uptime:"), info.Uptime))
 
 	b.WriteString("\n")
-	b.WriteString(fmt.Sprintf("  %s %s\n", f.label("Процессор:"), info.CPUModel))
+	cpuStr := info.CPUModel
+	if info.CPUTempC > 0 {
+		cpuStr += fmt.Sprintf("  |  %s %s", f.label("Temp:"), output.TempColor(info.CPUTempC, fmt.Sprintf("%.0f°C", info.CPUTempC)))
+	} else {
+		cpuStr += fmt.Sprintf("  |  %s %sN/A (нет доступа)%s", f.label("Temp:"), output.ColorDim, output.ColorReset)
+	}
+	b.WriteString(fmt.Sprintf("  %s %s\n", f.label("Процессор:"), cpuStr))
 	b.WriteString(fmt.Sprintf("    %s %d %s / %d %s\n",
 		f.label("Ядра:"), info.CPUCores, locale.T("физических"), info.CPULogical, locale.T("логических")))
 
 	b.WriteString("\n")
-	b.WriteString(fmt.Sprintf("  %s %s (%s %s, %.1f%%)\n",
+	ramSpecStr := ""
+	if info.RAMType != "" {
+		ramSpecStr = " [" + info.RAMType + "]"
+	}
+	b.WriteString(fmt.Sprintf("  %s %s%s (%s %s, %.1f%%)\n",
 		f.label("ОЗУ:"),
 		output.FormatMB(info.RAMTotalGB*1024, f.Units),
+		ramSpecStr,
 		locale.T("занято"),
 		output.FormatMB(info.RAMUsedGB*1024, f.Units),
 		info.RAMUsagePct))
+
+	if len(info.GPUs) > 0 {
+		b.WriteString("\n")
+		b.WriteString(fmt.Sprintf("  %s:\n", f.label("Графика (GPU)")))
+		for _, g := range info.GPUs {
+			gpuStr := g.Name
+			if g.VRAMMB > 0 {
+				gpuStr += fmt.Sprintf(" | VRAM: %d MB", g.VRAMMB)
+			}
+			if g.TempC > 0 {
+				gpuStr += fmt.Sprintf(" | Temp: %.0f°C", g.TempC)
+			}
+			if g.GPULoadPct > 0 {
+				gpuStr += fmt.Sprintf(" | %s: %.1f%%", locale.T("Загрузка"), g.GPULoadPct)
+			}
+			b.WriteString(fmt.Sprintf("    %s\n", gpuStr))
+		}
+	} else if info.GPUModel != "" {
+		b.WriteString("\n")
+		b.WriteString(fmt.Sprintf("  %-20s %s\n", f.label("Графика (GPU):"), info.GPUModel))
+	}
 
 	if len(info.Storages) > 0 {
 		b.WriteString("\n")
@@ -169,6 +201,9 @@ func (f *TextFormatter) formatCPU(b *strings.Builder, section any) {
 	if info.PackageTemp > 0 {
 		tempStr := fmt.Sprintf("%.1f°C", info.PackageTemp)
 		b.WriteString(fmt.Sprintf("  %-20s %s\n", f.label("Температура:"), output.TempColor(info.PackageTemp, tempStr)))
+	} else {
+		b.WriteString(fmt.Sprintf("  %-20s %sN/A (нет доступа к датчику)%s\n",
+			f.label("Температура:"), output.ColorDim, output.ColorReset))
 	}
 	for core, temp := range info.TempPerCore {
 		tempStr := fmt.Sprintf("%.0f°C", temp)
@@ -203,18 +238,41 @@ func (f *TextFormatter) formatMemory(b *strings.Builder, section any) {
 	if info.SwapTotalGB > 0 {
 		b.WriteString(fmt.Sprintf("  %-20s %.1f GB / %.1f GB\n", f.label("Swap:"), info.SwapUsedGB, info.SwapTotalGB))
 	}
-	if info.Type != "" {
-		b.WriteString(fmt.Sprintf("  %-20s %s\n", f.label("Тип:"), info.Type))
+	if info.Spec != "" {
+		b.WriteString(fmt.Sprintf("  %-20s %s\n", f.label("Спецификация:"), info.Spec))
+	} else {
+		if info.FormFactor != "" {
+			b.WriteString(fmt.Sprintf("  %-20s %s\n", f.label("Форм-фактор:"), info.FormFactor))
+		}
+		if info.Type != "" {
+			b.WriteString(fmt.Sprintf("  %-20s %s\n", f.label("Тип:"), info.Type))
+		}
+		if info.SpeedMTs > 0 {
+			b.WriteString(fmt.Sprintf("  %-20s %d MT/s\n", f.label("Частота:"), info.SpeedMTs))
+		}
 	}
-	if info.SpeedMTs > 0 {
-		b.WriteString(fmt.Sprintf("  %-20s %d MT/s\n", f.label("Частота:"), info.SpeedMTs))
+	if info.Model != "" && !strings.Contains(info.Spec, info.Model) {
+		b.WriteString(fmt.Sprintf("  %-20s %s\n", f.label("Модель/PartNo:"), info.Model))
 	}
 	b.WriteString(fmt.Sprintf("  %-20s %s\n", f.label("Тайминги:"), info.Timings))
 	if info.TotalSlots > 0 {
 		b.WriteString(fmt.Sprintf("  %-20s %d %s, %d %s\n", f.label("Слоты:"), info.TotalSlots, locale.T("всего"), info.UsedSlots, locale.T("занято")))
 	}
 	for _, slot := range info.Slots {
-		b.WriteString(fmt.Sprintf("    %s: %s %d GB %s %d MT/s\n", slot.Locator, slot.Manufacturer, slot.SizeGB, slot.Type, slot.SpeedMTs))
+		details := ""
+		if slot.FormFactor != "" {
+			details += slot.FormFactor + " "
+		}
+		if slot.Type != "" {
+			details += slot.Type + " "
+		}
+		if slot.SpeedMTs > 0 {
+			details += fmt.Sprintf("%d MT/s ", slot.SpeedMTs)
+		}
+		if slot.Model != "" {
+			details += fmt.Sprintf("(%s)", slot.Model)
+		}
+		b.WriteString(fmt.Sprintf("    %-8s %s %d GB %s\n", slot.Locator+":", slot.Manufacturer, slot.SizeGB, strings.TrimSpace(details)))
 	}
 }
 
@@ -355,9 +413,12 @@ func (f *TextFormatter) formatGPU(b *strings.Builder, section any) {
 		return
 	}
 
-	b.WriteString(f.sectionTitle("ВИДЕОКАРТА"))
+	b.WriteString(f.sectionTitle("ВИДЕОКАРТЫ (GPU)"))
 	for _, g := range info.GPUs {
-		b.WriteString(fmt.Sprintf("  %-20s %s (%s)\n", f.label("Название:"), g.Name, g.Vendor))
+		if g.IsVirtual {
+			continue
+		}
+		b.WriteString(fmt.Sprintf("  %-20s %s (%s)\n", f.label("Модель:"), g.Name, g.Vendor))
 		if g.VRAMMB > 0 {
 			b.WriteString(fmt.Sprintf("  %-20s %d MB\n", f.label("Видеопамять:"), g.VRAMMB))
 		}
@@ -378,6 +439,26 @@ func (f *TextFormatter) formatGPU(b *strings.Builder, section any) {
 		}
 		if g.PowerWatts > 0 {
 			b.WriteString(fmt.Sprintf("  %-20s %.1f W\n", f.label("Потребление:"), g.PowerWatts))
+		}
+		b.WriteString("\n")
+	}
+
+	if len(info.Displays) > 0 {
+		b.WriteString(f.sectionTitle("МОНИТОРЫ И ДИСПЛЕИ"))
+		for _, d := range info.Displays {
+			tag := ""
+			if d.IsVirtual {
+				tag = " [Виртуальный/Софтверный]"
+			}
+			resStr := d.Resolution
+			if d.RefreshRate > 0 {
+				resStr += fmt.Sprintf(" @ %dHz", d.RefreshRate)
+			}
+			if resStr != "" {
+				b.WriteString(fmt.Sprintf("  %-24s %s%s\n", f.label(d.Name+":"), resStr, tag))
+			} else {
+				b.WriteString(fmt.Sprintf("  %-24s%s\n", f.label(d.Name+":"), tag))
+			}
 		}
 		b.WriteString("\n")
 	}

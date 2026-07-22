@@ -7,13 +7,14 @@ import (
 )
 
 type SlotInfo struct {
-	Manufacturer string `json:"manufacturer"`
-	Model        string `json:"model"`
+	Manufacturer string `json:"manufacturer,omitempty"`
+	Model        string `json:"model,omitempty"`
 	Serial       string `json:"serial,omitempty"`
 	SizeGB       int    `json:"size_gb"`
 	SpeedMTs     int    `json:"speed_mts"`
-	Type         string `json:"type"`
-	Locator      string `json:"locator"`
+	Type         string `json:"type,omitempty"`
+	FormFactor   string `json:"form_factor,omitempty"`
+	Locator      string `json:"locator,omitempty"`
 }
 
 type Info struct {
@@ -24,11 +25,15 @@ type Info struct {
 	SwapTotalGB    float64    `json:"swap_total_gb"`
 	SwapUsedGB     float64    `json:"swap_used_gb"`
 	UsagePercent   float64    `json:"usage_percent"`
-	Type           string     `json:"type"`
-	SpeedMTs       int        `json:"speed_mts"`
-	Timings        string     `json:"timings"`
-	TotalSlots     int        `json:"total_slots"`
-	UsedSlots      int        `json:"used_slots"`
+	Type           string     `json:"type,omitempty"`
+	FormFactor     string     `json:"form_factor,omitempty"`
+	SpeedMTs       int        `json:"speed_mts,omitempty"`
+	Model          string     `json:"model,omitempty"`
+	Manufacturer   string     `json:"manufacturer,omitempty"`
+	Spec           string     `json:"spec,omitempty"`
+	Timings        string     `json:"timings,omitempty"`
+	TotalSlots     int        `json:"total_slots,omitempty"`
+	UsedSlots      int        `json:"used_slots,omitempty"`
 	Slots          []SlotInfo `json:"slots,omitempty"`
 }
 
