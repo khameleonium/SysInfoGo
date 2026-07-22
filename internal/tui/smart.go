@@ -3,13 +3,14 @@ package tui
 import (
 	"context"
 	"fmt"
-	"os/exec"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 	"github.com/user/sysinfogo/internal/locale"
+	"github.com/user/sysinfogo/internal/storage"
 )
 
 func (a *App) showSmartData(deviceName, model string) {
@@ -29,28 +30,23 @@ func (a *App) showSmartData(deviceName, model string) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		var out []byte
-		var err error
-
+		devArg := deviceName
 		if runtime.GOOS == "windows" {
-			out, err = exec.CommandContext(ctx, "smartctl", "-a", "/dev/"+deviceName).CombinedOutput()
-		} else {
-			out, err = exec.CommandContext(ctx, "smartctl", "-a", deviceName).CombinedOutput()
+			devArg = "/dev/" + deviceName
 		}
+		out, status, err := storage.ExecSmartctl(ctx, "-a", devArg)
 
 		a.app.QueueUpdateDraw(func() {
-			if err != nil {
-				msg := fmt.Sprintf("[red]%s[white]\n\n", T("Не удалось получить SMART-данные. Убедитесь, что программа запущена с правами администратора, а утилита smartmontools установлена."))
-
-				msg += fmt.Sprintf("[yellow]%s:[white]\n", T("Установка"))
-				msg += "Windows: choco install smartmontools\n"
-				msg += "Ubuntu/Debian: sudo apt-get install smartmontools\n"
-				msg += "macOS: brew install smartmontools\n\n"
-
-				msg += fmt.Sprintf("[gray]Error: %v\n%s", err, string(out))
+			if err != nil && len(out) == 0 {
+				msg := fmt.Sprintf("[red]%s[white]\n\n", T("Не удалось получить SMART-данные. Убедитесь, что программа запущена с правами администратора."))
+				msg += fmt.Sprintf("[gray]Error: %v\n", err)
 				tv.SetText(msg)
 			} else {
-				tv.SetText(string(out))
+				txt := string(out)
+				if strings.Contains(status, "системная версия") {
+					txt = fmt.Sprintf("[green][%s][white]\n\n%s", status, txt)
+				}
+				tv.SetText(txt)
 			}
 		})
 	}()

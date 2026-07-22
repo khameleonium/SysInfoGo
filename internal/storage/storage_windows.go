@@ -198,25 +198,10 @@ func collect(ctx context.Context) (*Info, []output.Warning, error) {
 		disks = append(disks, rde)
 	}
 
-	hasSmartctl := false
-	if smartctl, _ := exec.LookPath("smartctl"); smartctl != "" {
-		hasSmartctl = true
-	}
-
-	warnedSmartctl := false
 	for i := range disks {
 		if !disks[i].IsRAMDisk {
-			if hasSmartctl {
-				w := collectSmartWindows(ctx, &disks[i])
-				warns = append(warns, w...)
-			} else if !warnedSmartctl {
-				warns = append(warns, output.Warning{
-					Section: "storage",
-					Message: "Утилита smartctl не найдена.",
-					OSHint:  "Пожалуйста, установите пакет smartmontools, чтобы видеть данные о здоровье дисков (SMART).",
-				})
-				warnedSmartctl = true
-			}
+			w := collectSmartWindows(ctx, &disks[i])
+			warns = append(warns, w...)
 		}
 	}
 
@@ -755,10 +740,6 @@ func diskName(num int) string {
 }
 
 func collectSmartWindows(ctx context.Context, d *DiskInfo) []output.Warning {
-	if smartPath, _ := exec.LookPath("smartctl"); smartPath == "" {
-		return nil
-	}
-
 	target := ""
 	if len(d.Partitions) > 0 {
 		for _, p := range d.Partitions {
@@ -769,17 +750,20 @@ func collectSmartWindows(ctx context.Context, d *DiskInfo) []output.Warning {
 		}
 	}
 	if target == "" {
-		return nil
+		if d.DeviceName != "" {
+			target = "/dev/" + d.DeviceName
+		} else {
+			return nil
+		}
 	}
-	if !strings.HasSuffix(target, ":") {
+	if !strings.HasPrefix(target, "/dev/") && !strings.HasSuffix(target, ":") {
 		target += ":"
 	}
 
 	smartCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(smartCtx, "smartctl", "-A", target)
-	out, err := cmd.Output()
+	out, _, err := ExecSmartctl(smartCtx, "-A", target)
 	if err != nil {
 		return nil
 	}

@@ -3,10 +3,8 @@ package storage
 import (
 	"context"
 	"fmt"
-	"os/exec"
 	"runtime"
 	"strings"
-	"time"
 )
 
 // GetSmartReport returns full SMART output using smartctl or internal fallback.
@@ -15,18 +13,16 @@ func GetSmartReport(ctx context.Context, d DiskInfo) string {
 		return "Ошибка: не указано имя устройства для SMART."
 	}
 
-	cmdCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-
-	var out []byte
-	var err error
+	devArg := d.DeviceName
 	if runtime.GOOS == "windows" {
-		out, err = exec.CommandContext(cmdCtx, "smartctl", "-a", "/dev/"+d.DeviceName).CombinedOutput()
-	} else {
-		out, err = exec.CommandContext(cmdCtx, "smartctl", "-a", d.DeviceName).CombinedOutput()
+		devArg = "/dev/" + d.DeviceName
 	}
 
+	out, status, err := ExecSmartctl(ctx, "-a", devArg)
 	if err == nil && len(out) > 0 {
+		if strings.Contains(status, "системная версия") {
+			return fmt.Sprintf("[%s]\n\n%s", status, string(out))
+		}
 		return string(out)
 	}
 
@@ -48,18 +44,13 @@ func GetSmartReport(ctx context.Context, d DiskInfo) string {
 	if len(d.SMART) > 0 {
 		b.WriteString("\nИндикаторы SMART:\n")
 		for _, ind := range d.SMART {
-			status := "OK"
+			st := "OK"
 			if ind.IsWarning {
-				status = "ВНИМАНИЕ"
+				st = "ВНИМАНИЕ"
 			}
-			b.WriteString(fmt.Sprintf("  - %-25s: %-15s [%s]\n", ind.Name, ind.RawValue, status))
+			b.WriteString(fmt.Sprintf("  - %-25s: %-15s [%s]\n", ind.Name, ind.RawValue, st))
 		}
 	}
-	b.WriteString("\n--------------------------------------------------\n")
-	b.WriteString("Примечание: Для получения подробного отчета установите smartmontools:\n")
-	b.WriteString("  Windows: choco install smartmontools\n")
-	b.WriteString("  Linux:   sudo apt-get install smartmontools\n")
-	b.WriteString("  macOS:   brew install smartmontools\n")
 
 	return b.String()
 }

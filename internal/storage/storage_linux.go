@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -54,25 +53,14 @@ func collect(ctx context.Context) (*Info, []output.Warning, error) {
 		d.Partitions = append(d.Partitions, part)
 	}
 
-	hasSmartctl := false
-	if smartctl, _ := exec.LookPath("smartctl"); smartctl != "" {
-		hasSmartctl = true
-	}
-
-	warnedSmartctl := false
 	for _, d := range blkMap {
-		if len(d.Partitions) > 0 {
-			if hasSmartctl {
-				smartWarns := collectSmartLinux(ctx, d.Partitions[0].Name, d)
-				warns = append(warns, smartWarns...)
-			} else if !warnedSmartctl {
-				warns = append(warns, output.Warning{
-					Section: "storage",
-					Message: "Утилита smartctl не найдена.",
-					OSHint:  "Пожалуйста, установите пакет smartmontools, чтобы видеть данные о здоровье дисков (SMART).",
-				})
-				warnedSmartctl = true
-			}
+		devName := d.DeviceName
+		if devName == "" && len(d.Partitions) > 0 {
+			devName = d.Partitions[0].Name
+		}
+		if devName != "" {
+			smartWarns := collectSmartLinux(ctx, devName, d)
+			warns = append(warns, smartWarns...)
 		}
 	}
 
@@ -163,8 +151,7 @@ func collectSmartLinux(ctx context.Context, device string, d *DiskInfo) []output
 	smartCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(smartCtx, "smartctl", "-A", device)
-	out, err := cmd.Output()
+	out, _, err := ExecSmartctl(smartCtx, "-A", device)
 	if err != nil {
 		return nil
 	}

@@ -7,14 +7,13 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
-	"os/exec"
-	"strconv"
-	"sync"
-	"time"
-
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
 
 	"github.com/user/sysinfogo/internal/locale"
 	"github.com/user/sysinfogo/internal/network"
@@ -330,23 +329,22 @@ func (s *Server) handleSmart(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "device is required", http.StatusBadRequest)
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
 
-	var out []byte
-	var err error
+	devArg := device
 	if runtime.GOOS == "windows" {
-		out, err = exec.CommandContext(ctx, "smartctl", "-a", "/dev/"+device).CombinedOutput()
-	} else {
-		out, err = exec.CommandContext(ctx, "smartctl", "-a", device).CombinedOutput()
+		devArg = "/dev/" + device
 	}
-	if err != nil {
-		if len(out) == 0 {
-			http.Error(w, "smartctl failed: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
+
+	out, status, err := storage.ExecSmartctl(r.Context(), "-a", devArg)
+	if err != nil && len(out) == 0 {
+		http.Error(w, "smartctl failed: "+err.Error(), http.StatusInternalServerError)
+		return
 	}
+
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	if strings.Contains(status, "системная версия") {
+		w.Write([]byte("[" + status + "]\n\n"))
+	}
 	w.Write(out)
 }
 

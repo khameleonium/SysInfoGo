@@ -121,8 +121,19 @@ func (f *TextFormatter) formatSummary(b *strings.Builder, section any) {
 	if len(info.Storages) > 0 {
 		b.WriteString("\n")
 		b.WriteString(fmt.Sprintf("  %s:\n", f.label("Накопители")))
-		for _, s := range info.Storages {
-			b.WriteString(fmt.Sprintf("    %-6s %s %s / %s %s\n",
+		for i, s := range info.Storages {
+			letterTag := ""
+			if i < 26 {
+				letterTag = fmt.Sprintf("%c)", 'a'+i)
+			} else {
+				letterTag = fmt.Sprintf("%d)", i+1)
+			}
+			tagStr := output.ColorGreen + letterTag + output.ColorReset
+			if !f.UseColor {
+				tagStr = letterTag
+			}
+			b.WriteString(fmt.Sprintf("    %-3s %-6s %s %s / %s %s\n",
+				tagStr,
 				s.MountPoint,
 				output.FormatMB(s.TotalGB*1024, f.Units), locale.T("всего"),
 				output.FormatMB(s.FreeGB*1024, f.Units), locale.T("свободно")))

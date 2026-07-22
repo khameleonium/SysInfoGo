@@ -162,8 +162,7 @@ func collectSmartDarwin(ctx context.Context, device string, d *DiskInfo) []outpu
 	smartCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(smartCtx, "smartctl", "-A", device)
-	out, err := cmd.Output()
+	out, _, err := ExecSmartctl(smartCtx, "-A", device)
 	if err != nil {
 		return nil
 	}
