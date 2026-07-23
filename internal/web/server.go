@@ -15,7 +15,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/user/sysinfogo/internal/cpu"
 	"github.com/user/sysinfogo/internal/diagnostic"
+	"github.com/user/sysinfogo/internal/gpu"
 	"github.com/user/sysinfogo/internal/locale"
 	"github.com/user/sysinfogo/internal/network"
 	"github.com/user/sysinfogo/internal/output"
@@ -37,6 +39,7 @@ type Server struct {
 
 	bgNetHistory bool
 	netHistory   map[string][]float64
+	tempHistory  map[string][]float64
 
 	lastState *serverState
 }
@@ -56,6 +59,7 @@ func NewServer(host string, port string, bgNetHistory bool, collect func(ctx con
 		collect:      collect,
 		bgNetHistory: bgNetHistory,
 		netHistory:   make(map[string][]float64),
+		tempHistory:  make(map[string][]float64),
 		lastState: &serverState{
 			NetSent:   make(map[string]uint64),
 			NetRecv:   make(map[string]uint64),
@@ -85,6 +89,7 @@ func (s *Server) Start(ctx context.Context, interval time.Duration) error {
 	mux.HandleFunc("/api/process/terminate", s.handleProcessKill)
 	mux.HandleFunc("/api/smart", s.handleSmart)
 	mux.HandleFunc("/api/network/history", s.handleNetworkHistory)
+	mux.HandleFunc("/api/temp/history", s.handleTempHistory)
 	mux.HandleFunc("/api/export/txt", s.handleExportTXT)
 	mux.HandleFunc("/api/export/csv", s.handleExportCSV)
 	mux.HandleFunc("/api/export/html", s.handleExportHTML)
@@ -189,6 +194,43 @@ func (s *Server) updateData(ctx context.Context) {
 			}
 		}
 		s.lastState.Timestamp = now
+	}
+
+	if s.bgNetHistory {
+		if cInfo, ok := data["cpu"].(*cpu.Info); ok && cInfo.PackageTemp > 0 {
+			h := s.tempHistory["cpu"]
+			h = append(h, cInfo.PackageTemp)
+			if len(h) > 50 {
+				h = h[1:]
+			}
+			s.tempHistory["cpu"] = h
+		}
+		if gInfo, ok := data["gpu"].(*gpu.Info); ok {
+			for _, item := range gInfo.GPUs {
+				if item.TempC > 0 {
+					key := "gpu_" + item.Name
+					h := s.tempHistory[key]
+					h = append(h, item.TempC)
+					if len(h) > 50 {
+						h = h[1:]
+					}
+					s.tempHistory[key] = h
+				}
+			}
+		}
+		if sInfo, ok := data["storage"].(*storage.Info); ok {
+			for _, disk := range sInfo.Disks {
+				if disk.TempC > 0 {
+					key := "disk_" + disk.Model
+					h := s.tempHistory[key]
+					h = append(h, float64(disk.TempC))
+					if len(h) > 50 {
+						h = h[1:]
+					}
+					s.tempHistory[key] = h
+				}
+			}
+		}
 	}
 
 	data["warnings"] = warnings
@@ -385,4 +427,18 @@ func (s *Server) handleDiagnostic(w http.ResponseWriter, r *http.Request) {
 
 	res := diagnostic.Run(r.Context())
 	json.NewEncoder(w).Encode(res)
+}
+
+func (s *Server) handleTempHistory(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Content-Type", "application/json")
+
+	s.dataMutex.RLock()
+	defer s.dataMutex.RUnlock()
+
+	if !s.bgNetHistory {
+		w.Write([]byte("{}"))
+		return
+	}
+	json.NewEncoder(w).Encode(s.tempHistory)
 }

@@ -71,12 +71,6 @@ function renderData(data) {
         if (data.cpu) renderCPU(data.cpu);
         if (data.memory) renderMemory(data.memory);
     }
-    if (data.gpu) renderGPU(data.gpu);
-    if (data.battery) renderBattery(data.battery);
-    if (data.network) renderNetwork(data.network);
-    if (data.processes) renderProcesses(data.processes);
-    if (data.storage) renderStorage(data.storage);
-    
     if (data.network && data.network.interfaces) {
         window.netHistoryMap = window.netHistoryMap || {};
         data.network.interfaces.forEach(iface => {
@@ -93,6 +87,45 @@ function renderData(data) {
             window.renderNetGraphModal();
         }
     }
+
+    window.tempHistoryMap = window.tempHistoryMap || {};
+    if (data.cpu && data.cpu.package_temp > 0) {
+        let h = window.tempHistoryMap["cpu"] || Array(20).fill(data.cpu.package_temp);
+        h.push(data.cpu.package_temp);
+        if (h.length > 50) h.shift();
+        window.tempHistoryMap["cpu"] = h;
+    }
+    if (data.gpu && data.gpu.gpus) {
+        data.gpu.gpus.forEach((g) => {
+            if (g.temp_c > 0) {
+                let key = "gpu_" + g.name;
+                let h = window.tempHistoryMap[key] || Array(20).fill(g.temp_c);
+                h.push(g.temp_c);
+                if (h.length > 50) h.shift();
+                window.tempHistoryMap[key] = h;
+            }
+        });
+    }
+    if (data.storage && data.storage.disks) {
+        data.storage.disks.forEach(d => {
+            if (d.temp_c > 0) {
+                let key = "disk_" + d.model;
+                let h = window.tempHistoryMap[key] || Array(20).fill(d.temp_c);
+                h.push(d.temp_c);
+                if (h.length > 50) h.shift();
+                window.tempHistoryMap[key] = h;
+            }
+        });
+    }
+    if (window.activeTempGraph && window.renderTempGraphModal) {
+        window.renderTempGraphModal();
+    }
+
+    if (data.gpu) renderGPU(data.gpu);
+    if (data.battery) renderBattery(data.battery);
+    if (data.network) renderNetwork(data.network);
+    if (data.processes) renderProcesses(data.processes);
+    if (data.storage) renderStorage(data.storage);
 }
 
 function formatGB(gb) {
@@ -150,6 +183,29 @@ function renderSummary(summary) {
     el.innerHTML = html;
 }
 
+function makeTempSparklineSVG(data) {
+    if (!data || data.length < 2) {
+        return `<svg width="100%" height="28" viewBox="0 0 100 28" preserveAspectRatio="none" style="display:block; background:rgba(0,0,0,0.15); border-radius:4px; margin-top:4px;">
+            <line x1="0" y1="24" x2="100" y2="24" stroke="rgba(255,255,255,0.08)" stroke-width="1" stroke-dasharray="2,2"/>
+        </svg>`;
+    }
+    let max = Math.max(...data);
+    let min = Math.min(...data);
+    let range = Math.max(5, max - min);
+    let step = 100 / Math.max(1, data.length - 1);
+    let points = data.map((val, i) => {
+        let x = (i * step).toFixed(1);
+        let y = (26 - ((val - min) / range * 22)).toFixed(1);
+        return `${x},${y}`;
+    }).join(' ');
+    let fillPoints = `0,28 ${points} 100,28`;
+
+    return `<svg width="100%" height="28" viewBox="0 0 100 28" preserveAspectRatio="none" style="display:block; background:rgba(249,115,22,0.08); border:1px solid rgba(249,115,22,0.2); border-radius:4px; margin-top:4px; overflow:hidden;">
+        <polygon fill="rgba(249, 115, 22, 0.2)" points="${fillPoints}"/>
+        <polyline fill="none" stroke="#f97316" stroke-width="1.5" points="${points}"/>
+    </svg>`;
+}
+
 function renderCPU(cpu) {
     const el = document.getElementById('content-cpu');
     let html = kvPair(T('Модель'), cpu.model);
@@ -157,7 +213,11 @@ function renderCPU(cpu) {
     if (cpu.current_speed_ghz > 0) html += kvPair(T('Частота'), cpu.current_speed_ghz.toFixed(2) + ' GHz');
     if (cpu.package_temp > 0) {
         const color = cpu.package_temp > 80 ? 'color-danger' : (cpu.package_temp > 65 ? 'color-warn' : 'color-ok');
-        html += kvPair(T('Температура'), cpu.package_temp.toFixed(1) + ' °C', color);
+        let tempSpark = makeTempSparklineSVG(window.tempHistoryMap ? window.tempHistoryMap["cpu"] : null);
+        html += `<div style="cursor:pointer; margin-top:4px; padding:4px; background:rgba(255,255,255,0.02); border-radius:6px; border:1px solid rgba(249,115,22,0.15);" onclick="openTempGraph('cpu', '${T('Процессор (CPU)')}')">`;
+        html += kvPair(T('Температура'), `🔥 ${cpu.package_temp.toFixed(1)} °C <span style="font-size:0.75rem; color:var(--text-secondary);">(График)</span>`, color);
+        html += tempSpark;
+        html += `</div>`;
     } else {
         html += kvPair(T('Температура'), 'N/A <span style="font-size:0.75rem; color:var(--text-secondary);">(нет доступа к датчику)</span>');
     }
@@ -203,12 +263,17 @@ function renderGPU(gpu) {
     const targetGPUs = physicalGPUs.length > 0 ? physicalGPUs : gpu.gpus;
 
     targetGPUs.forEach(g => {
+        let key = "gpu_" + g.name;
         html += `<div class="sub-card">`;
         html += `<div class="sub-card-title">${g.name}</div>`;
         if (g.vram_mb > 0) html += kvPair('VRAM', (g.vram_mb / 1024).toFixed(2) + ' GB');
         if (g.temp_c > 0) {
             const color = g.temp_c > 80 ? 'color-danger' : (g.temp_c > 65 ? 'color-warn' : 'color-ok');
-            html += kvPair(T('Температура'), g.temp_c.toFixed(1) + ' °C', color);
+            let tempSpark = makeTempSparklineSVG(window.tempHistoryMap ? window.tempHistoryMap[key] : null);
+            html += `<div style="cursor:pointer; margin-top:4px; padding:4px; background:rgba(255,255,255,0.02); border-radius:6px; border:1px solid rgba(249,115,22,0.15);" onclick="openTempGraph('${key}', '${g.name}')">`;
+            html += kvPair(T('Температура'), `🔥 ${g.temp_c.toFixed(1)} °C <span style="font-size:0.75rem; color:var(--text-secondary);">(График)</span>`, color);
+            html += tempSpark;
+            html += `</div>`;
         }
         if (g.gpu_load_pct > 0) html += progressBar(g.gpu_load_pct, T('Загрузка GPU'), '');
         html += `</div>`;
@@ -258,6 +323,28 @@ function formatBytes(bytes) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
+function makeSparklineSVG(data) {
+    if (!data || data.length < 2) {
+        return `<svg width="100%" height="32" viewBox="0 0 100 32" preserveAspectRatio="none" style="display:block; background:rgba(0,0,0,0.15); border-radius:4px; margin-top:6px;">
+            <line x1="0" y1="28" x2="100" y2="28" stroke="rgba(255,255,255,0.08)" stroke-width="1" stroke-dasharray="2,2"/>
+        </svg>`;
+    }
+    let max = Math.max(...data);
+    if (max === 0) max = 1;
+    let step = 100 / Math.max(1, data.length - 1);
+    let points = data.map((val, i) => {
+        let x = (i * step).toFixed(1);
+        let y = (30 - (val / max * 26)).toFixed(1);
+        return `${x},${y}`;
+    }).join(' ');
+    let fillPoints = `0,32 ${points} 100,32`;
+
+    return `<svg width="100%" height="32" viewBox="0 0 100 32" preserveAspectRatio="none" style="display:block; background:rgba(0,0,0,0.2); border-radius:4px; margin-top:6px; overflow:hidden;">
+        <polygon fill="rgba(59, 130, 246, 0.2)" points="${fillPoints}"/>
+        <polyline fill="none" stroke="var(--accent-blue)" stroke-width="1.5" points="${points}"/>
+    </svg>`;
+}
+
 function renderNetwork(net) {
     if (!net || !net.interfaces) return;
     const el = document.getElementById('content-network');
@@ -268,6 +355,9 @@ function renderNetwork(net) {
     }
     html += '<div class="network-grid">';
     net.interfaces.forEach(iface => {
+        let hist = window.netHistoryMap ? window.netHistoryMap[iface.name] : null;
+        let sparkline = makeSparklineSVG(hist);
+
         html += `<div class="sub-card" style="cursor:pointer;" onclick="openNetGraph('${iface.name}')">`;
         html += `<div class="sub-card-title">${iface.name} <span class="color-ok">●</span></div>`;
         if (iface.ipv4 && iface.ipv4.length > 0) html += kvPair('IPv4', iface.ipv4[0]);
@@ -276,6 +366,7 @@ function renderNetwork(net) {
         } else {
             html += kvPair(T('Трафик'), `RX: ${formatBytes(iface.bytes_recv)} | TX: ${formatBytes(iface.bytes_sent)}`);
         }
+        html += sparkline;
         html += `</div>`;
     });
     html += '</div>';
@@ -332,8 +423,13 @@ function renderStorage(storage) {
             html += kvPair('SMART Health', d.health, hColor);
         }
         if (d.temp_c > 0) {
+            let key = "disk_" + d.model;
             let tColor = d.temp_c > 55 ? 'color-danger' : (d.temp_c > 45 ? 'color-warn' : 'color-ok');
-            html += kvPair(T('Температура'), d.temp_c.toFixed(1) + ' °C', tColor);
+            let tempSpark = makeTempSparklineSVG(window.tempHistoryMap ? window.tempHistoryMap[key] : null);
+            html += `<div style="cursor:pointer; margin-top:4px; padding:4px; background:rgba(255,255,255,0.02); border-radius:6px; border:1px solid rgba(249,115,22,0.15);" onclick="event.stopPropagation(); openTempGraph('${key}', '${d.model}')">`;
+            html += kvPair(T('Температура'), `🔥 ${d.temp_c.toFixed(1)} °C <span style="font-size:0.75rem; color:var(--text-secondary);">(График)</span>`, tColor);
+            html += tempSpark;
+            html += `</div>`;
         }
 
         if (d.partitions && d.partitions.length > 0) {
@@ -607,4 +703,132 @@ window.openDiagnosticModal = function() {
         .catch(err => {
             document.getElementById('modal-body').innerHTML = `<div style="color:var(--danger); padding:20px;">Не удалось загрузить отчет диагностики: ${err}</div>`;
         });
+};
+
+window.openTempGraph = async function(key, title) {
+    if (window.tempChartInstance) {
+        window.tempChartInstance.destroy();
+        window.tempChartInstance = null;
+    }
+    window.activeTempGraph = key;
+    window.activeTempTitle = title;
+    openModal(T("График температуры") + ": " + title, '<div style="padding:20px; text-align:center; color:var(--text-secondary);">' + T("Загрузка...") + '</div>');
+    
+    window.tempHistoryMap = window.tempHistoryMap || {};
+    if (!window.tempHistoryMap[key]) {
+        window.tempHistoryMap[key] = [0];
+    }
+
+    try {
+        const res = await fetch('/api/temp/history');
+        if (res.ok) {
+            const hist = await res.json();
+            if (hist && hist[key]) {
+                window.tempHistoryMap[key] = hist[key];
+            }
+        }
+    } catch(e) {
+        console.warn("API /api/temp/history unavailable, using real-time polling data:", e);
+    }
+    
+    window.renderTempGraphModal();
+};
+
+window.renderTempGraphModal = function() {
+    if (!window.activeTempGraph) return;
+    const key = window.activeTempGraph;
+    window.tempHistoryMap = window.tempHistoryMap || {};
+    const data = window.tempHistoryMap[key] || [0];
+    const latest = data[data.length - 1] || 0;
+    let max = Math.max(...data);
+    let min = Math.min(...data);
+
+    const modalBody = document.getElementById('modal-body');
+    let canvas = document.getElementById('temp-chart-canvas');
+
+    if (!canvas) {
+        let html = `<div style="display:flex; justify-content:space-between; align-items:center; font-size:0.9rem; margin-bottom:12px;">
+            <div><b>${T("Текущая темп.")}:</b> <span id="temp-curr-val" style="color:#f97316; font-weight:600;">🔥 ${latest.toFixed(1)} °C</span></div>
+            <div><b>${T("Макс")}:</b> <span id="temp-peak-val" style="font-weight:600; color:var(--danger);">${max.toFixed(1)} °C</span></div>
+            <div><b>${T("Мин")}:</b> <span id="temp-min-val" style="font-weight:600; color:var(--ok);">${min.toFixed(1)} °C</span></div>
+        </div>
+        <div style="position:relative; width:100%; height:250px; background:rgba(0,0,0,0.2); border:1px solid var(--card-border); border-radius:8px; padding:8px; box-sizing:border-box;">
+            <canvas id="temp-chart-canvas"></canvas>
+        </div>`;
+        modalBody.innerHTML = html;
+        canvas = document.getElementById('temp-chart-canvas');
+    } else {
+        const currEl = document.getElementById('temp-curr-val');
+        const peakEl = document.getElementById('temp-peak-val');
+        const minEl = document.getElementById('temp-min-val');
+        if (currEl) currEl.innerText = '🔥 ' + latest.toFixed(1) + ' °C';
+        if (peakEl) peakEl.innerText = max.toFixed(1) + ' °C';
+        if (minEl) minEl.innerText = min.toFixed(1) + ' °C';
+    }
+
+    const labels = data.map((_, i) => {
+        let secs = (data.length - 1 - i) * 2;
+        return secs === 0 ? T("Сейчас") : `-${secs}s`;
+    });
+
+    if (typeof Chart !== 'undefined' && canvas) {
+        if (window.tempChartInstance) {
+            window.tempChartInstance.data.labels = labels;
+            window.tempChartInstance.data.datasets[0].data = data;
+            window.tempChartInstance.update('none');
+        } else {
+            const ctx = canvas.getContext('2d');
+            const gradient = ctx.createLinearGradient(0, 0, 0, 200);
+            gradient.addColorStop(0, 'rgba(249, 115, 22, 0.4)');
+            gradient.addColorStop(1, 'rgba(249, 115, 22, 0.0)');
+
+            window.tempChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Температура (°C)',
+                        data: data,
+                        borderColor: '#f97316',
+                        borderWidth: 2,
+                        backgroundColor: gradient,
+                        fill: true,
+                        tension: 0.4,
+                        pointRadius: 2,
+                        pointHoverRadius: 6,
+                        pointBackgroundColor: '#ef4444'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return context.parsed.y.toFixed(1) + ' °C';
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            ticks: { color: '#94a3b8', font: { size: 10 } }
+                        },
+                        y: {
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            ticks: { 
+                                color: '#94a3b8', 
+                                font: { size: 10 },
+                                callback: function(value) { return value.toFixed(0) + ' °C'; }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    }
 };
