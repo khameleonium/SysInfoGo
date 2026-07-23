@@ -92,6 +92,11 @@ func (a *App) updateWidgets(data map[string]any) {
 			cpuTxt += "\n"
 		}
 		cpuTxt += fmt.Sprintf("[green]Usage:[white] %s\n[green]Temp:[white] %s\n", cpuBar, tempText)
+		if c.FanSpeedRPM > 0 {
+			cpuTxt += fmt.Sprintf("[green]Fan:[white] %d RPM\n", c.FanSpeedRPM)
+		} else {
+			cpuTxt += "[green]Fan:[white] N/A (no sensor)\n"
+		}
 
 		a.cpuWidget.SetText(cpuTxt)
 	}
@@ -110,6 +115,17 @@ func (a *App) updateWidgets(data map[string]any) {
 			}
 			if item.TempC > 0 {
 				txt += fmt.Sprintf(" | [green]Temp:[white] %.0f°C", item.TempC)
+			}
+			if item.FanSpeedRPM > 0 || item.FanSpeedPct > 0 {
+				if item.FanSpeedRPM > 0 && item.FanSpeedPct > 0 {
+					txt += fmt.Sprintf(" | [green]Fan:[white] %d RPM (%.0f%%)", item.FanSpeedRPM, item.FanSpeedPct)
+				} else if item.FanSpeedRPM > 0 {
+					txt += fmt.Sprintf(" | [green]Fan:[white] %d RPM", item.FanSpeedRPM)
+				} else {
+					txt += fmt.Sprintf(" | [green]Fan:[white] %.0f%%", item.FanSpeedPct)
+				}
+			} else {
+				txt += " | [green]Fan:[white] N/A"
 			}
 			if item.GPULoadPct > 0 {
 				gpuBar := makeProgressBar(item.GPULoadPct, 12)

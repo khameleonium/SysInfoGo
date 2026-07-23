@@ -17,6 +17,7 @@ type GPUInfo struct {
 	GPULoadPct     float64 `json:"gpu_load_pct,omitempty"`
 	VRAMLoadPct    float64 `json:"vram_load_pct,omitempty"`
 	FanSpeedPct    float64 `json:"fan_speed_pct,omitempty"`
+	FanSpeedRPM    int     `json:"fan_speed_rpm,omitempty"`
 	PowerWatts     float64 `json:"power_watts,omitempty"`
 	EncoderDecoder string  `json:"encoder_decoder,omitempty"`
 	IsVirtual      bool    `json:"is_virtual,omitempty"`

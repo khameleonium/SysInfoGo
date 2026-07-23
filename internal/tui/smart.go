@@ -3,7 +3,6 @@ package tui
 import (
 	"context"
 	"fmt"
-	"runtime"
 	"strings"
 	"time"
 
@@ -33,24 +32,10 @@ func (a *App) showSmartData(deviceName, model string) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		devArg := deviceName
-		if runtime.GOOS == "windows" {
-			devArg = "/dev/" + deviceName
-		}
-		out, status, err := storage.ExecSmartctl(ctx, "-a", devArg)
+		report := storage.GetSmartReportForDevice(ctx, deviceName)
 
 		a.app.QueueUpdateDraw(func() {
-			if err != nil && len(out) == 0 {
-				msg := fmt.Sprintf("[red]%s[white]\n\n", T("Не удалось получить SMART-данные. Убедитесь, что программа запущена с правами администратора."))
-				msg += fmt.Sprintf("[gray]Error: %v\n", err)
-				tv.SetText(msg)
-			} else {
-				txt := string(out)
-				if strings.Contains(status, "системная версия") {
-					txt = fmt.Sprintf("[green][%s][white]\n\n%s", status, txt)
-				}
-				tv.SetText(txt)
-			}
+			tv.SetText(report)
 		})
 	}()
 

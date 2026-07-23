@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -52,8 +53,25 @@ func collect(ctx context.Context) (*Info, []output.Warning, error) {
 	}
 
 	collectTempLinux(ctx, info)
+	collectFanLinux(ctx, info)
 
 	return info, nil, nil
+}
+
+func collectFanLinux(ctx context.Context, info *Info) {
+	files, err := filepath.Glob("/sys/class/hwmon/hwmon*/fan*_input")
+	if err == nil {
+		for _, f := range files {
+			data, err := os.ReadFile(f)
+			if err == nil {
+				val, err := strconv.Atoi(strings.TrimSpace(string(data)))
+				if err == nil && val > 0 {
+					info.FanSpeedRPM = val
+					return
+				}
+			}
+		}
+	}
 }
 
 func collectTempLinux(ctx context.Context, info *Info) {
@@ -67,15 +85,14 @@ func collectTempLinux(ctx context.Context, info *Info) {
 				}
 			}
 		}
-		if info.PackageTemp > 0 {
-			return
-		}
 	}
 
-	data, err := os.ReadFile("/sys/class/thermal/thermal_zone0/temp")
-	if err == nil {
-		if tempMillicelsius, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil {
-			info.PackageTemp = float64(tempMillicelsius) / 1000.0
+	if info.PackageTemp == 0 {
+		data, err := os.ReadFile("/sys/class/thermal/thermal_zone0/temp")
+		if err == nil {
+			if tempMillicelsius, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil {
+				info.PackageTemp = float64(tempMillicelsius) / 1000.0
+			}
 		}
 	}
 }

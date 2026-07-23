@@ -24,6 +24,7 @@ type Info struct {
 	CacheL3KB       int             `json:"cache_l3_kb"`
 	TempPerCore     map[int]float64 `json:"temp_per_core,omitempty"`
 	PackageTemp     float64         `json:"package_temp,omitempty"`
+	FanSpeedRPM     int             `json:"fan_speed_rpm,omitempty"`
 	InstructionSets []string        `json:"instruction_sets"`
 	UsagePercent    float64         `json:"usage_percent"`
 	UsagePerCore    []float64       `json:"usage_per_core"`

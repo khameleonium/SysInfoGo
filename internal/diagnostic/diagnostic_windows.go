@@ -116,6 +116,25 @@ func runCPUDiagnostics(ctx context.Context, isAdmin bool) ComponentReport {
 	}
 	report.Checks = append(report.Checks, cacheCheck)
 
+	// Fan check
+	fanCheck := CheckItem{Name: "Датчик кулера CPU (Win32_Fan / WMI)"}
+	if cpuInfo.FanSpeedRPM > 0 {
+		fanCheck.Status = StatusOK
+		fanCheck.Value = fmt.Sprintf("%d RPM", cpuInfo.FanSpeedRPM)
+	} else {
+		fanCheck.Status = StatusWarn
+		fanCheck.ErrorMessage = "Скорость вращения кулера CPU недоступна (N/A / 0 RPM)"
+		if !isAdmin {
+			fanCheck.RootCause = "Для чтения аппаратных тахометров кулеров через ACPI / WMI / Win32_Fan требуются права Администратора."
+			fanCheck.Recommendation = "1. Запустите SysInfoGo от имени Администратора.\n2. Убедитесь, что вентилятор подключен к разъему CPU_FAN (4-pin) на материнской плате."
+		} else {
+			fanCheck.RootCause = "WMI-класс Win32_Fan не поддерживается BIOS вашей материнской платы или используется 3-pin вентилятор без тахометра."
+			fanCheck.Recommendation = "Запустите утилиту LibreHardwareMonitor / OpenHardwareMonitor в фоне для активации WMI-датчиков тахометра."
+		}
+		report.HasWarnings = true
+	}
+	report.Checks = append(report.Checks, fanCheck)
+
 	return report
 }
 
@@ -148,6 +167,26 @@ func runGPUDiagnostics(ctx context.Context, isAdmin bool) ComponentReport {
 			gCheck.Recommendation = "Установите или обновите фирменные драйверы производители видеокарты (NVIDIA / AMD / Intel)."
 			report.HasWarnings = true
 		}
+		report.Checks = append(report.Checks, gCheck)
+
+		gpuFanCheck := CheckItem{Name: fmt.Sprintf("Кулер GPU: %s", g.Name)}
+		if g.FanSpeedRPM > 0 || g.FanSpeedPct > 0 {
+			gpuFanCheck.Status = StatusOK
+			if g.FanSpeedRPM > 0 && g.FanSpeedPct > 0 {
+				gpuFanCheck.Value = fmt.Sprintf("%d RPM (%.0f%%)", g.FanSpeedRPM, g.FanSpeedPct)
+			} else if g.FanSpeedRPM > 0 {
+				gpuFanCheck.Value = fmt.Sprintf("%d RPM", g.FanSpeedRPM)
+			} else {
+				gpuFanCheck.Value = fmt.Sprintf("%.0f%%", g.FanSpeedPct)
+			}
+		} else {
+			gpuFanCheck.Status = StatusWarn
+			gpuFanCheck.ErrorMessage = "Скорость кулера GPU недоступна (N/A / 0 RPM)"
+			gpuFanCheck.RootCause = "Видеокарта работает в режиме пассивного охлаждения (Fan Stop Mode) при низкой температуре, либо используется базовый драйвер."
+			gpuFanCheck.Recommendation = "1. Проверьте температуру и нагрузку GPU (кулеры включаются при нагреве >55°C).\n2. Установите фирменный драйвер NVIDIA / AMD."
+			report.HasWarnings = true
+		}
+		report.Checks = append(report.Checks, gpuFanCheck)
 		report.Checks = append(report.Checks, gCheck)
 
 		if g.Vendor == "NVIDIA" {

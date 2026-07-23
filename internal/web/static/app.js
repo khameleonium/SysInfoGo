@@ -121,6 +121,29 @@ function renderData(data) {
         window.renderTempGraphModal();
     }
 
+    window.fanHistoryMap = window.fanHistoryMap || {};
+    if (data.cpu && data.cpu.fan_speed_rpm > 0) {
+        let h = window.fanHistoryMap["cpu"] || Array(20).fill(data.cpu.fan_speed_rpm);
+        h.push(data.cpu.fan_speed_rpm);
+        if (h.length > 50) h.shift();
+        window.fanHistoryMap["cpu"] = h;
+    }
+    if (data.gpu && data.gpu.gpus) {
+        data.gpu.gpus.forEach((g) => {
+            if (g.fan_speed_rpm > 0 || g.fan_speed_pct > 0) {
+                let val = g.fan_speed_rpm > 0 ? g.fan_speed_rpm : g.fan_speed_pct;
+                let key = "gpu_" + g.name;
+                let h = window.fanHistoryMap[key] || Array(20).fill(val);
+                h.push(val);
+                if (h.length > 50) h.shift();
+                window.fanHistoryMap[key] = h;
+            }
+        });
+    }
+    if (window.activeFanGraph && window.renderFanGraphModal) {
+        window.renderFanGraphModal();
+    }
+
     if (data.gpu) renderGPU(data.gpu);
     if (data.battery) renderBattery(data.battery);
     if (data.network) renderNetwork(data.network);
@@ -206,6 +229,29 @@ function makeTempSparklineSVG(data) {
     </svg>`;
 }
 
+function makeFanSparklineSVG(data) {
+    if (!data || data.length < 2) {
+        return `<svg width="100%" height="28" viewBox="0 0 100 28" preserveAspectRatio="none" style="display:block; background:rgba(0,0,0,0.15); border-radius:4px; margin-top:4px;">
+            <line x1="0" y1="24" x2="100" y2="24" stroke="rgba(255,255,255,0.08)" stroke-width="1" stroke-dasharray="2,2"/>
+        </svg>`;
+    }
+    let max = Math.max(...data);
+    let min = Math.min(...data);
+    let range = Math.max(100, max - min);
+    let step = 100 / Math.max(1, data.length - 1);
+    let points = data.map((val, i) => {
+        let x = (i * step).toFixed(1);
+        let y = (26 - ((val - min) / range * 22)).toFixed(1);
+        return `${x},${y}`;
+    }).join(' ');
+    let fillPoints = `0,28 ${points} 100,28`;
+
+    return `<svg width="100%" height="28" viewBox="0 0 100 28" preserveAspectRatio="none" style="display:block; background:rgba(6,182,212,0.08); border:1px solid rgba(6,182,212,0.2); border-radius:4px; margin-top:4px; overflow:hidden;">
+        <polygon fill="rgba(6, 182, 212, 0.2)" points="${fillPoints}"/>
+        <polyline fill="none" stroke="#06b6d4" stroke-width="1.5" points="${points}"/>
+    </svg>`;
+}
+
 function renderCPU(cpu) {
     const el = document.getElementById('content-cpu');
     let html = kvPair(T('Модель'), cpu.model);
@@ -220,6 +266,15 @@ function renderCPU(cpu) {
         html += `</div>`;
     } else {
         html += kvPair(T('Температура'), 'N/A <span style="font-size:0.75rem; color:var(--text-secondary);">(нет доступа к датчику)</span>');
+    }
+    if (cpu.fan_speed_rpm > 0) {
+        let fanSpark = makeFanSparklineSVG(window.fanHistoryMap ? window.fanHistoryMap["cpu"] : null);
+        html += `<div style="cursor:pointer; margin-top:4px; padding:4px; background:rgba(255,255,255,0.02); border-radius:6px; border:1px solid rgba(6,182,212,0.15);" onclick="openFanGraph('cpu', '${T('Кулер CPU')}', 'RPM')">`;
+        html += kvPair(T('Кулер CPU'), `🌀 ${cpu.fan_speed_rpm} RPM <span style="font-size:0.75rem; color:var(--text-secondary);">(График)</span>`, 'color-accent');
+        html += fanSpark;
+        html += `</div>`;
+    } else {
+        html += kvPair(T('Кулер CPU'), `N/A <span style="font-size:0.75rem; color:var(--accent-blue); cursor:pointer;" onclick="openDiagnosticModal()">(Диагностика)</span>`);
     }
     html += progressBar(cpu.usage_percent, T('Загрузка CPU'), '');
     el.innerHTML = html;
@@ -274,6 +329,17 @@ function renderGPU(gpu) {
             html += kvPair(T('Температура'), `🔥 ${g.temp_c.toFixed(1)} °C <span style="font-size:0.75rem; color:var(--text-secondary);">(График)</span>`, color);
             html += tempSpark;
             html += `</div>`;
+        }
+        if (g.fan_speed_rpm > 0 || g.fan_speed_pct > 0) {
+            let valStr = g.fan_speed_rpm > 0 ? `🌀 ${g.fan_speed_rpm} RPM` : `🌀 ${g.fan_speed_pct.toFixed(0)}%`;
+            let unit = g.fan_speed_rpm > 0 ? 'RPM' : '%';
+            let fanSpark = makeFanSparklineSVG(window.fanHistoryMap ? window.fanHistoryMap[key] : null);
+            html += `<div style="cursor:pointer; margin-top:4px; padding:4px; background:rgba(255,255,255,0.02); border-radius:6px; border:1px solid rgba(6,182,212,0.15);" onclick="openFanGraph('${key}', '${g.name} ${T('Кулер')}', '${unit}')">`;
+            html += kvPair(T('Кулер GPU'), `${valStr} <span style="font-size:0.75rem; color:var(--text-secondary);">(График)</span>`, 'color-accent');
+            html += fanSpark;
+            html += `</div>`;
+        } else {
+            html += kvPair(T('Кулер GPU'), `N/A <span style="font-size:0.75rem; color:var(--accent-blue); cursor:pointer;" onclick="openDiagnosticModal()">(Диагностика)</span>`);
         }
         if (g.gpu_load_pct > 0) html += progressBar(g.gpu_load_pct, T('Загрузка GPU'), '');
         html += `</div>`;
@@ -496,9 +562,19 @@ window.closeModal = function() {
     document.getElementById('modal-overlay').style.display = 'none';
     document.getElementById('modal').style.display = 'none';
     window.activeNetGraph = null;
+    window.activeTempGraph = null;
+    window.activeFanGraph = null;
     if (window.netChartInstance) {
         window.netChartInstance.destroy();
         window.netChartInstance = null;
+    }
+    if (window.tempChartInstance) {
+        window.tempChartInstance.destroy();
+        window.tempChartInstance = null;
+    }
+    if (window.fanChartInstance) {
+        window.fanChartInstance.destroy();
+        window.fanChartInstance = null;
     }
 };
 
@@ -824,6 +900,136 @@ window.renderTempGraphModal = function() {
                                 color: '#94a3b8', 
                                 font: { size: 10 },
                                 callback: function(value) { return value.toFixed(0) + ' °C'; }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    }
+};
+
+window.openFanGraph = async function(key, title, unit) {
+    if (window.fanChartInstance) {
+        window.fanChartInstance.destroy();
+        window.fanChartInstance = null;
+    }
+    window.activeFanGraph = key;
+    window.activeFanTitle = title;
+    window.activeFanUnit = unit || 'RPM';
+    openModal(T("График скорости кулера") + ": " + title, '<div style="padding:20px; text-align:center; color:var(--text-secondary);">' + T("Загрузка...") + '</div>');
+    
+    window.fanHistoryMap = window.fanHistoryMap || {};
+    if (!window.fanHistoryMap[key]) {
+        window.fanHistoryMap[key] = [0];
+    }
+
+    try {
+        const res = await fetch('/api/fan/history');
+        if (res.ok) {
+            const hist = await res.json();
+            if (hist && hist[key]) {
+                window.fanHistoryMap[key] = hist[key];
+            }
+        }
+    } catch(e) {
+        console.warn("API /api/fan/history unavailable, using real-time polling data:", e);
+    }
+    
+    window.renderFanGraphModal();
+};
+
+window.renderFanGraphModal = function() {
+    if (!window.activeFanGraph) return;
+    const key = window.activeFanGraph;
+    const unit = window.activeFanUnit || 'RPM';
+    window.fanHistoryMap = window.fanHistoryMap || {};
+    const data = window.fanHistoryMap[key] || [0];
+    const latest = data[data.length - 1] || 0;
+    let max = Math.max(...data);
+    let min = Math.min(...data);
+
+    const modalBody = document.getElementById('modal-body');
+    let canvas = document.getElementById('fan-chart-canvas');
+
+    if (!canvas) {
+        let html = `<div style="display:flex; justify-content:space-between; align-items:center; font-size:0.9rem; margin-bottom:12px;">
+            <div><b>${T("Текущая скорость")}:</b> <span id="fan-curr-val" style="color:#06b6d4; font-weight:600;">🌀 ${latest.toFixed(0)} ${unit}</span></div>
+            <div><b>${T("Макс")}:</b> <span id="fan-peak-val" style="font-weight:600; color:var(--danger);">${max.toFixed(0)} ${unit}</span></div>
+            <div><b>${T("Мин")}:</b> <span id="fan-min-val" style="font-weight:600; color:var(--ok);">${min.toFixed(0)} ${unit}</span></div>
+        </div>
+        <div style="position:relative; width:100%; height:250px; background:rgba(0,0,0,0.2); border:1px solid var(--card-border); border-radius:8px; padding:8px; box-sizing:border-box;">
+            <canvas id="fan-chart-canvas"></canvas>
+        </div>`;
+        modalBody.innerHTML = html;
+        canvas = document.getElementById('fan-chart-canvas');
+    } else {
+        const currEl = document.getElementById('fan-curr-val');
+        const peakEl = document.getElementById('fan-peak-val');
+        const minEl = document.getElementById('fan-min-val');
+        if (currEl) currEl.innerText = '🌀 ' + latest.toFixed(0) + ' ' + unit;
+        if (peakEl) peakEl.innerText = max.toFixed(0) + ' ' + unit;
+        if (minEl) minEl.innerText = min.toFixed(0) + ' ' + unit;
+    }
+
+    const labels = data.map((_, i) => {
+        let secs = (data.length - 1 - i) * 2;
+        return secs === 0 ? T("Сейчас") : `-${secs}s`;
+    });
+
+    if (typeof Chart !== 'undefined' && canvas) {
+        if (window.fanChartInstance) {
+            window.fanChartInstance.data.labels = labels;
+            window.fanChartInstance.data.datasets[0].data = data;
+            window.fanChartInstance.update('none');
+        } else {
+            const ctx = canvas.getContext('2d');
+            const gradient = ctx.createLinearGradient(0, 0, 0, 200);
+            gradient.addColorStop(0, 'rgba(6, 182, 212, 0.4)');
+            gradient.addColorStop(1, 'rgba(6, 182, 212, 0.0)');
+
+            window.fanChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Скорость кулера (' + unit + ')',
+                        data: data,
+                        borderColor: '#06b6d4',
+                        borderWidth: 2,
+                        backgroundColor: gradient,
+                        fill: true,
+                        tension: 0.4,
+                        pointRadius: 2,
+                        pointHoverRadius: 6,
+                        pointBackgroundColor: '#00f2fe'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return context.parsed.y.toFixed(0) + ' ' + unit;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            ticks: { color: '#94a3b8', font: { size: 10 } }
+                        },
+                        y: {
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            ticks: { 
+                                color: '#94a3b8', 
+                                font: { size: 10 },
+                                callback: function(value) { return value.toFixed(0) + ' ' + unit; }
                             }
                         }
                     }

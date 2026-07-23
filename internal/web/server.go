@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -40,6 +39,7 @@ type Server struct {
 	bgNetHistory bool
 	netHistory   map[string][]float64
 	tempHistory  map[string][]float64
+	fanHistory   map[string][]float64
 
 	lastState *serverState
 }
@@ -60,6 +60,7 @@ func NewServer(host string, port string, bgNetHistory bool, collect func(ctx con
 		bgNetHistory: bgNetHistory,
 		netHistory:   make(map[string][]float64),
 		tempHistory:  make(map[string][]float64),
+		fanHistory:   make(map[string][]float64),
 		lastState: &serverState{
 			NetSent:   make(map[string]uint64),
 			NetRecv:   make(map[string]uint64),
@@ -90,6 +91,7 @@ func (s *Server) Start(ctx context.Context, interval time.Duration) error {
 	mux.HandleFunc("/api/smart", s.handleSmart)
 	mux.HandleFunc("/api/network/history", s.handleNetworkHistory)
 	mux.HandleFunc("/api/temp/history", s.handleTempHistory)
+	mux.HandleFunc("/api/fan/history", s.handleFanHistory)
 	mux.HandleFunc("/api/export/txt", s.handleExportTXT)
 	mux.HandleFunc("/api/export/csv", s.handleExportCSV)
 	mux.HandleFunc("/api/export/html", s.handleExportHTML)
@@ -197,24 +199,46 @@ func (s *Server) updateData(ctx context.Context) {
 	}
 
 	if s.bgNetHistory {
-		if cInfo, ok := data["cpu"].(*cpu.Info); ok && cInfo.PackageTemp > 0 {
-			h := s.tempHistory["cpu"]
-			h = append(h, cInfo.PackageTemp)
-			if len(h) > 50 {
-				h = h[1:]
+		if cInfo, ok := data["cpu"].(*cpu.Info); ok {
+			if cInfo.PackageTemp > 0 {
+				h := s.tempHistory["cpu"]
+				h = append(h, cInfo.PackageTemp)
+				if len(h) > 50 {
+					h = h[1:]
+				}
+				s.tempHistory["cpu"] = h
 			}
-			s.tempHistory["cpu"] = h
+			if cInfo.FanSpeedRPM > 0 {
+				h := s.fanHistory["cpu"]
+				h = append(h, float64(cInfo.FanSpeedRPM))
+				if len(h) > 50 {
+					h = h[1:]
+				}
+				s.fanHistory["cpu"] = h
+			}
 		}
 		if gInfo, ok := data["gpu"].(*gpu.Info); ok {
 			for _, item := range gInfo.GPUs {
+				key := "gpu_" + item.Name
 				if item.TempC > 0 {
-					key := "gpu_" + item.Name
 					h := s.tempHistory[key]
 					h = append(h, item.TempC)
 					if len(h) > 50 {
 						h = h[1:]
 					}
 					s.tempHistory[key] = h
+				}
+				if item.FanSpeedRPM > 0 || item.FanSpeedPct > 0 {
+					val := float64(item.FanSpeedRPM)
+					if val == 0 {
+						val = item.FanSpeedPct
+					}
+					h := s.fanHistory[key]
+					h = append(h, val)
+					if len(h) > 50 {
+						h = h[1:]
+					}
+					s.fanHistory[key] = h
 				}
 			}
 		}
@@ -389,22 +413,9 @@ func (s *Server) handleSmart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	devArg := device
-	if runtime.GOOS == "windows" {
-		devArg = "/dev/" + device
-	}
-
-	out, status, err := storage.ExecSmartctl(r.Context(), "-a", devArg)
-	if err != nil && len(out) == 0 {
-		http.Error(w, "smartctl failed: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
+	report := storage.GetSmartReportForDevice(r.Context(), device)
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	if strings.Contains(status, "системная версия") {
-		w.Write([]byte("[" + status + "]\n\n"))
-	}
-	w.Write(out)
+	w.Write([]byte(report))
 }
 
 func (s *Server) handleNetworkHistory(w http.ResponseWriter, r *http.Request) {
@@ -441,4 +452,18 @@ func (s *Server) handleTempHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	json.NewEncoder(w).Encode(s.tempHistory)
+}
+
+func (s *Server) handleFanHistory(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Content-Type", "application/json")
+
+	s.dataMutex.RLock()
+	defer s.dataMutex.RUnlock()
+
+	if !s.bgNetHistory {
+		w.Write([]byte("{}"))
+		return
+	}
+	json.NewEncoder(w).Encode(s.fanHistory)
 }

@@ -79,8 +79,36 @@ func collect(ctx context.Context) (*Info, []output.Warning, error) {
 	}
 
 	collectTempWindows(ctx, info)
+	collectFanWindows(ctx, info)
 
 	return info, warns, nil
+}
+
+func collectFanWindows(ctx context.Context, info *Info) {
+	for _, ns := range []string{"root\\OpenHardwareMonitor", "root\\LibreHardwareMonitor"} {
+		raw := wmi.QueryList(ctx, "path", ns+":Sensor", "get", "Name,Value,SensorType")
+		if raw != "" {
+			records := wmi.ParseList(raw)
+			for _, rec := range records {
+				if rec["SensorType"] == "Fan" {
+					if val, err := strconv.ParseFloat(rec["Value"], 64); err == nil && val > 0 {
+						info.FanSpeedRPM = int(val)
+						return
+					}
+				}
+			}
+		}
+	}
+	rawFan := wmi.QueryList(ctx, "path", "Win32_Fan", "get", "DesiredSpeed")
+	if rawFan != "" {
+		records := wmi.ParseList(rawFan)
+		for _, rec := range records {
+			if spd, err := strconv.Atoi(rec["DesiredSpeed"]); err == nil && spd > 0 {
+				info.FanSpeedRPM = spd
+				return
+			}
+		}
+	}
 }
 
 func collectTempWindows(ctx context.Context, info *Info) {

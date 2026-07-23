@@ -31,7 +31,7 @@ import (
 	"github.com/user/sysinfogo/internal/web"
 )
 
-const version = "1.6.0"
+const version = "1.7.0"
 
 var (
 	flagCPU          bool

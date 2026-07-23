@@ -206,6 +206,12 @@ func (f *TextFormatter) formatCPU(b *strings.Builder, section any) {
 		b.WriteString(fmt.Sprintf("  %-20s %sN/A (нет доступа к датчику)%s\n",
 			f.label("Температура:"), output.ColorDim, output.ColorReset))
 	}
+	if info.FanSpeedRPM > 0 {
+		b.WriteString(fmt.Sprintf("  %-20s %d RPM\n", f.label("Кулер CPU:"), info.FanSpeedRPM))
+	} else {
+		b.WriteString(fmt.Sprintf("  %-20s %sN/A (нет доступа к датчику)%s\n",
+			f.label("Кулер CPU:"), output.ColorDim, output.ColorReset))
+	}
 	for core, temp := range info.TempPerCore {
 		tempStr := fmt.Sprintf("%.0f°C", temp)
 		b.WriteString(fmt.Sprintf("  %-20s %s %d: %s\n", "", locale.T("Ядро"), core, output.TempColor(temp, tempStr)))
@@ -435,8 +441,19 @@ func (f *TextFormatter) formatGPU(b *strings.Builder, section any) {
 		if g.VRAMLoadPct > 0 {
 			b.WriteString(fmt.Sprintf("  %-20s %.1f%%\n", f.label("Загрузка VRAM:"), g.VRAMLoadPct))
 		}
-		if g.FanSpeedPct > 0 {
-			b.WriteString(fmt.Sprintf("  %-20s %.0f%%\n", f.label("Кулер:"), g.FanSpeedPct))
+		if g.FanSpeedRPM > 0 || g.FanSpeedPct > 0 {
+			fanStr := ""
+			if g.FanSpeedRPM > 0 && g.FanSpeedPct > 0 {
+				fanStr = fmt.Sprintf("%d RPM (%.0f%%)", g.FanSpeedRPM, g.FanSpeedPct)
+			} else if g.FanSpeedRPM > 0 {
+				fanStr = fmt.Sprintf("%d RPM", g.FanSpeedRPM)
+			} else {
+				fanStr = fmt.Sprintf("%.0f%%", g.FanSpeedPct)
+			}
+			b.WriteString(fmt.Sprintf("  %-20s %s\n", f.label("Кулер:"), fanStr))
+		} else {
+			b.WriteString(fmt.Sprintf("  %-20s %sN/A (пассивное / нет датчика)%s\n",
+				f.label("Кулер:"), output.ColorDim, output.ColorReset))
 		}
 		if g.PowerWatts > 0 {
 			b.WriteString(fmt.Sprintf("  %-20s %.1f W\n", f.label("Потребление:"), g.PowerWatts))

@@ -87,7 +87,18 @@ func runCPUDiagnostics(ctx context.Context, isAdmin bool) ComponentReport {
 		tempCheck.Recommendation = "1. Запустите 'sudo modprobe coretemp' (для Intel) или 'sudo modprobe k10temp' (для AMD).\n2. Установите lm-sensors: 'sudo apt install lm-sensors && sudo sensors-detect'."
 		report.HasWarnings = true
 	}
-	report.Checks = append(report.Checks, tempCheck)
+	fanCheck := CheckItem{Name: "Датчик кулера CPU (Linux sysfs hwmon)"}
+	if cpuInfo.FanSpeedRPM > 0 {
+		fanCheck.Status = StatusOK
+		fanCheck.Value = fmt.Sprintf("%d RPM", cpuInfo.FanSpeedRPM)
+	} else {
+		fanCheck.Status = StatusWarn
+		fanCheck.ErrorMessage = "Скорость кулера CPU недоступна (N/A / 0 RPM)"
+		fanCheck.RootCause = "Модули ядра для чтения тахометров вентиляторов (nuiton, nct6775, it87) не загружены или /sys/class/hwmon недоступен."
+		fanCheck.Recommendation = "1. Запустите 'sudo sensors-detect' для автоматической настройки модулей hwmon.\n2. Выполните 'sudo modprobe nct6775' (для большинства десктопных плат)."
+		report.HasWarnings = true
+	}
+	report.Checks = append(report.Checks, fanCheck)
 
 	return report
 }
@@ -115,6 +126,25 @@ func runGPUDiagnostics(ctx context.Context, isAdmin bool) ComponentReport {
 			Value:  fmt.Sprintf("VRAM: %d MB | Temp: %.0f°C", g.VRAMMB, g.TempC),
 		}
 		report.Checks = append(report.Checks, gCheck)
+
+		gpuFanCheck := CheckItem{Name: fmt.Sprintf("Кулер GPU: %s", g.Name)}
+		if g.FanSpeedRPM > 0 || g.FanSpeedPct > 0 {
+			gpuFanCheck.Status = StatusOK
+			if g.FanSpeedRPM > 0 && g.FanSpeedPct > 0 {
+				gpuFanCheck.Value = fmt.Sprintf("%d RPM (%.0f%%)", g.FanSpeedRPM, g.FanSpeedPct)
+			} else if g.FanSpeedRPM > 0 {
+				gpuFanCheck.Value = fmt.Sprintf("%d RPM", g.FanSpeedRPM)
+			} else {
+				gpuFanCheck.Value = fmt.Sprintf("%.0f%%", g.FanSpeedPct)
+			}
+		} else {
+			gpuFanCheck.Status = StatusWarn
+			gpuFanCheck.ErrorMessage = "Скорость кулера GPU недоступна (N/A / 0 RPM)"
+			gpuFanCheck.RootCause = "Кулеры GPU могут быть остановлены в режиме бездействия (Zero RPM Mode), либо отсутствует nvidia-smi / rocm-smi."
+			gpuFanCheck.Recommendation = "1. Проверьте nvidia-smi / rocm-smi под 3D-нагрузкой.\n2. Установите проприетарные драйверы GPU."
+			report.HasWarnings = true
+		}
+		report.Checks = append(report.Checks, gpuFanCheck)
 
 		if g.Vendor == "NVIDIA" {
 			nvCheck := CheckItem{Name: "NVIDIA Utility (nvidia-smi)"}

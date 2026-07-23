@@ -7,28 +7,142 @@ import (
 	"strings"
 )
 
+func cleanDiskDeviceName(dev string) string {
+	dev = strings.TrimSpace(dev)
+	if dev == "" {
+		return dev
+	}
+	
+	// If e.g. /dev/mmcblk1p1 or /dev/mmcblk1p -> /dev/mmcblk1
+	if strings.Contains(dev, "mmcblk") {
+		idx := strings.Index(dev, "mmcblk")
+		prefix := dev[:idx+6]
+		rest := dev[idx+6:]
+		digits := ""
+		for _, c := range rest {
+			if c >= '0' && c <= '9' {
+				digits += string(c)
+			} else {
+				break
+			}
+		}
+		if digits != "" {
+			return prefix + digits
+		}
+	}
+
+	// If e.g. /dev/nvme0n1p1 -> /dev/nvme0n1
+	if strings.Contains(dev, "nvme") {
+		pIdx := strings.LastIndex(dev, "p")
+		if pIdx > 0 && pIdx < len(dev)-1 {
+			afterP := dev[pIdx+1:]
+			isDigits := true
+			for _, c := range afterP {
+				if c < '0' || c > '9' {
+					isDigits = false
+					break
+				}
+			}
+			if isDigits && len(afterP) > 0 {
+				return dev[:pIdx]
+			}
+		}
+	}
+
+	// If e.g. /dev/sda1 -> /dev/sda
+	if strings.HasPrefix(dev, "/dev/sd") || strings.HasPrefix(dev, "/dev/hd") || strings.HasPrefix(dev, "/dev/vd") {
+		return strings.TrimRight(dev, "0123456789")
+	}
+
+	return dev
+}
+
+// GetSmartReportForDevice returns SMART report or fallback disk status for a device name.
+func GetSmartReportForDevice(ctx context.Context, deviceName string) string {
+	devName := cleanDiskDeviceName(deviceName)
+	
+	// Try to match disk info from collector
+	var matchedDisk DiskInfo
+	matchedDisk.DeviceName = devName
+
+	stInfo, _, err := Collect(ctx)
+	if err == nil && stInfo != nil {
+		for _, d := range stInfo.Disks {
+			cleanD := cleanDiskDeviceName(d.DeviceName)
+			if cleanD == devName || strings.HasSuffix(cleanD, devName) || strings.HasSuffix(devName, cleanD) || d.DeviceName == deviceName {
+				matchedDisk = d
+				break
+			}
+		}
+	}
+
+	return GetSmartReport(ctx, matchedDisk)
+}
+
 // GetSmartReport returns full SMART output using smartctl or internal fallback.
 func GetSmartReport(ctx context.Context, d DiskInfo) string {
 	if d.DeviceName == "" {
 		return "Ошибка: не указано имя устройства для SMART."
 	}
 
-	devArg := d.DeviceName
+	devName := cleanDiskDeviceName(d.DeviceName)
+	devArg := devName
 	if runtime.GOOS == "windows" {
-		devArg = "/dev/" + d.DeviceName
+		devArg = "/dev/" + devName
 	}
 
 	out, status, err := ExecSmartctl(ctx, "-a", devArg)
 	if err == nil && len(out) > 0 {
-		if strings.Contains(status, "системная версия") {
+		if strings.Contains(status, "системная версия") || strings.Contains(status, "встроенный") {
 			return fmt.Sprintf("[%s]\n\n%s", status, string(out))
 		}
 		return string(out)
 	}
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("=== S.M.A.R.T. Отчёт: %s (%s) ===\n", d.Model, d.DeviceName))
-	b.WriteString(fmt.Sprintf("Здоровье (Health): %s (%.0f%%)\n", d.Health, d.HealthPct))
+	modelStr := d.Model
+	if modelStr == "" {
+		modelStr = devName
+	}
+	b.WriteString(fmt.Sprintf("=== S.M.A.R.T. Отчёт: %s (%s) ===\n\n", modelStr, devName))
+
+	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "executable file not found") || strings.Contains(errMsg, "not found") || strings.Contains(errMsg, "no such file") {
+			b.WriteString(fmt.Sprintf("⚠️  Утилита smartctl не найдена в системе (%s/%s).\n\n", runtime.GOOS, runtime.GOARCH))
+			b.WriteString("Причина: В состав SysInfoGo встроен бинарник smartctl под x86_64, но для архитектуры " + runtime.GOARCH + " (" + runtime.GOOS + ") требуется системный пакет smartmontools.\n\n")
+			b.WriteString("Инструкция по установке:\n")
+			if runtime.GOOS == "linux" {
+				b.WriteString("  • Debian / Ubuntu / Armbian:  sudo apt update && sudo apt install -y smartmontools\n")
+				b.WriteString("  • Arch Linux / Manjaro:      sudo pacman -S smartmontools\n")
+				b.WriteString("  • Alpine Linux:              sudo apk add smartmontools\n")
+				b.WriteString("  • Fedora / RHEL / CentOS:    sudo dnf install smartmontools\n")
+			} else if runtime.GOOS == "darwin" {
+				b.WriteString("  • macOS (Homebrew):          brew install smartmontools\n")
+			} else {
+				b.WriteString("  • Установите smartmontools с сайта https://www.smartmontools.org/\n")
+			}
+			b.WriteString("\n--------------------------------------------------\n")
+			b.WriteString("Текущие данные датчиков SysInfoGo:\n")
+		} else {
+			b.WriteString(fmt.Sprintf("⚠️  smartctl завершился с ошибкой: %v\n\n", err))
+			if len(out) > 0 {
+				b.WriteString(string(out) + "\n")
+			}
+			b.WriteString("--------------------------------------------------\n")
+			b.WriteString("Текущие данные датчиков SysInfoGo:\n")
+		}
+	}
+
+	healthStr := d.Health
+	if healthStr == "" {
+		healthStr = "OK"
+	}
+	b.WriteString(fmt.Sprintf("Здоровье (Health): %s", healthStr))
+	if d.HealthPct > 0 {
+		b.WriteString(fmt.Sprintf(" (%.0f%%)", d.HealthPct))
+	}
+	b.WriteString("\n")
 	if d.TempC > 0 {
 		b.WriteString(fmt.Sprintf("Температура: %.0f °C\n", d.TempC))
 	}
