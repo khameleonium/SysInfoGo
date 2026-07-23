@@ -45,20 +45,23 @@ func makeProgressBar(pct float64, width int) string {
 
 func (a *App) updateWidgets(data map[string]any) {
 	if s, ok := data["summary"].(*summary.Info); ok {
-		a.headerWidget.SetText(fmt.Sprintf("[green::b]SysInfoGo[white] | Host: %s | OS: %s | %s | Uptime: %s",
-			s.Hostname, s.OS, time.Now().Format("15:04:05"), s.Uptime))
+		line1 := fmt.Sprintf("[green::b]SysInfoGo[white] | [green]Host:[white] %s | [green]OS:[white] %s", s.Hostname, s.OS)
+		if s.Kernel != "" {
+			line1 += fmt.Sprintf(" %s", s.Kernel)
+		}
+		if s.Arch != "" {
+			line1 += fmt.Sprintf(" (%s)", s.Arch)
+		}
 
-		sumTxt := fmt.Sprintf(
-			"[green]OS:[white] %s\n[green]Kernel:[white] %s\n[green]Arch:[white] %s\n[green]Host:[white] %s\n[green]Uptime:[white] %s\n[green]Boot:[white] %s\n",
-			s.OS, s.Kernel, s.Arch, s.Hostname, s.Uptime, s.BootTime,
-		)
+		line2 := fmt.Sprintf("[yellow]%s[white] | [green]Uptime:[white] %s", time.Now().Format("15:04:05"), s.Uptime)
+		if s.BootTime != "" {
+			line2 += fmt.Sprintf(" | [green]Boot:[white] %s", s.BootTime)
+		}
 		if s.Motherboard != "" {
-			sumTxt += fmt.Sprintf("[green]Motherboard:[white] %s\n", s.Motherboard)
+			line2 += fmt.Sprintf(" | [green]Plata:[white] %s", s.Motherboard)
 		}
-		if s.Virtualization != "" {
-			sumTxt += fmt.Sprintf("[green]Virtualization:[white] %s\n", s.Virtualization)
-		}
-		a.summaryWidget.SetText(sumTxt)
+
+		a.headerWidget.SetText(fmt.Sprintf("%s\n%s", line1, line2))
 	}
 
 	if c, ok := data["cpu"].(*cpu.Info); ok {
@@ -67,10 +70,30 @@ func (a *App) updateWidgets(data map[string]any) {
 		if c.PackageTemp > 0 {
 			tempText = fmt.Sprintf("%.1f°C", c.PackageTemp)
 		}
-		a.cpuWidget.SetText(fmt.Sprintf(
-			"[green]Model:[white] %s\n[green]Cores:[white] %d physical / %d logical\n[green]Usage:[white] %s\n[green]Temp:[white] %s\n",
-			c.Model, c.PhysicalCores, c.LogicalCores, cpuBar, tempText,
-		))
+
+		cpuTxt := fmt.Sprintf(
+			"[green]Model:[white] %s\n[green]Cores:[white] %d physical / %d logical\n",
+			c.Model, c.PhysicalCores, c.LogicalCores,
+		)
+		if c.CurrentSpeedGHz > 0 {
+			cpuTxt += fmt.Sprintf("[green]Speed:[white] %.2f GHz", c.CurrentSpeedGHz)
+			if c.MaxSpeedGHz > 0 {
+				cpuTxt += fmt.Sprintf(" (Max: %.2f GHz)", c.MaxSpeedGHz)
+			}
+			cpuTxt += "\n"
+		}
+		if c.CacheL2KB > 0 || c.CacheL3KB > 0 {
+			if c.CacheL2KB > 0 {
+				cpuTxt += fmt.Sprintf("[green]L2:[white] %d KB ", c.CacheL2KB)
+			}
+			if c.CacheL3KB > 0 {
+				cpuTxt += fmt.Sprintf("[green]L3:[white] %d KB", c.CacheL3KB)
+			}
+			cpuTxt += "\n"
+		}
+		cpuTxt += fmt.Sprintf("[green]Usage:[white] %s\n[green]Temp:[white] %s\n", cpuBar, tempText)
+
+		a.cpuWidget.SetText(cpuTxt)
 	}
 
 	if g, ok := data["gpu"].(*gpu.Info); ok && len(g.GPUs) > 0 {

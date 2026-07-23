@@ -9,8 +9,10 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
+	"github.com/user/sysinfogo/internal/diagnostic"
 	"github.com/user/sysinfogo/internal/gpu"
 	"github.com/user/sysinfogo/internal/locale"
+	"github.com/user/sysinfogo/internal/render"
 	"github.com/user/sysinfogo/internal/storage"
 )
 
@@ -136,5 +138,63 @@ func (a *App) showDisplaysData() {
 	})
 
 	a.pages.AddPage("displays_modal", popup, true, true)
+	a.app.SetFocus(flex)
+}
+
+func (a *App) showDiagnosticModal() {
+	tv := tview.NewTextView().
+		SetDynamicColors(true).
+		SetScrollable(true).
+		SetWrap(true).
+		SetWordWrap(true)
+
+	tv.SetBorder(true).
+		SetTitle(" Диагностика подсистем и датчиков ").
+		SetTitleColor(tcell.ColorYellow)
+
+	tv.SetText("[yellow]Идёт сканирование оборудования, прав и датчиков...[white]")
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		diagResult := diagnostic.Run(ctx)
+		formatter := render.NewTextFormatter(false, false, "GB", false)
+		reportTxt := formatter.FormatDiagnostic(diagResult)
+
+		// Convert terminal color codes to tview tags
+		reportTxt = strings.ReplaceAll(reportTxt, "\x1b[32m", "[green]")
+		reportTxt = strings.ReplaceAll(reportTxt, "\x1b[33m", "[yellow]")
+		reportTxt = strings.ReplaceAll(reportTxt, "\x1b[31m", "[red]")
+		reportTxt = strings.ReplaceAll(reportTxt, "\x1b[1m", "[::b]")
+		reportTxt = strings.ReplaceAll(reportTxt, "\x1b[0m", "[white]")
+
+		a.app.QueueUpdateDraw(func() {
+			tv.SetText(reportTxt)
+		})
+	}()
+
+	flex := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(tv, 0, 1, true).
+		AddItem(tview.NewTextView().SetText(" Esc / Enter - Закрыть").SetTextAlign(tview.AlignCenter).SetTextColor(tcell.ColorYellow), 1, 1, false)
+
+	popup := tview.NewFlex().
+		AddItem(nil, 0, 1, false).
+		AddItem(tview.NewFlex().SetDirection(tview.FlexRow).
+			AddItem(nil, 0, 1, false).
+			AddItem(flex, 0, 8, true).
+			AddItem(nil, 0, 1, false), 0, 8, true).
+		AddItem(nil, 0, 1, false)
+
+	flex.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if event.Key() == tcell.KeyEscape || event.Key() == tcell.KeyEnter {
+			a.pages.RemovePage("diagnostic_modal")
+			a.app.SetFocus(a.summaryWidget)
+			return nil
+		}
+		return event
+	})
+
+	a.pages.AddPage("diagnostic_modal", popup, true, true)
 	a.app.SetFocus(flex)
 }

@@ -137,7 +137,7 @@ func (a *App) initWidgets() {
 	a.footerWidget = tview.NewTextView().
 		SetDynamicColors(true).
 		SetTextAlign(tview.AlignCenter).
-		SetText(fmt.Sprintf("[yellow]%s:[white] q - %s | p - %s | Enter - %s", T("Горячие клавиши"), T("Выход"), T("Отобразить все процессы (вместо топ 10)"), T("Завершить процесс")))
+		SetText(fmt.Sprintf("[yellow]%s:[white] q - %s | p - %s | d - %s | Enter - %s", T("Горячие клавиши"), T("Выход"), T("Все процессы"), T("Диагностика"), T("Детали/SMART/Дисплеи")))
 
 	a.killModal = tview.NewModal().
 		AddButtons([]string{T("Да"), T("Нет")})
@@ -153,17 +153,12 @@ func (a *App) setupLayout() {
 	// Header spanning 3 columns
 	grid.AddItem(a.headerWidget, 0, 0, 1, 3, 0, 0, false)
 
-	// Middle1: Summary (col 0), CPU + GPU flex (col 1), Processes (col 2, span 2 rows)
-	cpuGpuFlex := tview.NewFlex().SetDirection(tview.FlexRow).
-		AddItem(a.cpuWidget, 0, 1, false).
-		AddItem(a.gpuWidget, 0, 1, false)
-
-	grid.AddItem(a.summaryWidget, 1, 0, 1, 1, 0, 0, false)
-	grid.AddItem(cpuGpuFlex, 1, 1, 1, 1, 0, 0, false)
+	// Middle1: CPU (col 0), GPU (col 1), Processes (col 2, span 2 rows)
+	grid.AddItem(a.cpuWidget, 1, 0, 1, 1, 0, 0, false)
+	grid.AddItem(a.gpuWidget, 1, 1, 1, 1, 0, 0, false)
 	grid.AddItem(a.processesWidget, 1, 2, 2, 1, 0, 0, true) // Processes is selectable
 
-	// Middle2: Memory (col 0), Network/Storage (col 1)
-	// Actually, let's split col 0 into Memory + Battery
+	// Middle2: Memory + Battery (col 0), Storage + Network (col 1)
 	leftSplit := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(a.memoryWidget, 0, 1, false).
 		AddItem(a.batteryWidget, 0, 1, false)
@@ -180,11 +175,10 @@ func (a *App) setupLayout() {
 
 	a.focusRing = []tview.Primitive{
 		a.processesWidget,
-		a.storageWidget,
-		a.networkWidget,
-		a.summaryWidget,
 		a.cpuWidget,
 		a.gpuWidget,
+		a.storageWidget,
+		a.networkWidget,
 		a.memoryWidget,
 		a.batteryWidget,
 	}

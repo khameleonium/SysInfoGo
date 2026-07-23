@@ -77,14 +77,20 @@ function renderData(data) {
     if (data.processes) renderProcesses(data.processes);
     if (data.storage) renderStorage(data.storage);
     
-    if (data.network && window.activeNetGraph) {
-        let iface = data.network.interfaces.find(i => i.name === window.activeNetGraph);
-        if (iface) {
+    if (data.network && data.network.interfaces) {
+        window.netHistoryMap = window.netHistoryMap || {};
+        data.network.interfaces.forEach(iface => {
             let val = (iface.speed_recv_mbps || 0) + (iface.speed_sent_mbps || 0);
-            if (!window.activeNetGraphData) window.activeNetGraphData = Array(50).fill(0);
-            window.activeNetGraphData.push(val);
-            if (window.activeNetGraphData.length > 50) window.activeNetGraphData.shift();
-            if (window.renderNetGraphModal) window.renderNetGraphModal();
+            if (!window.netHistoryMap[iface.name]) {
+                window.netHistoryMap[iface.name] = Array(30).fill(0);
+            }
+            window.netHistoryMap[iface.name].push(val);
+            if (window.netHistoryMap[iface.name].length > 50) {
+                window.netHistoryMap[iface.name].shift();
+            }
+        });
+        if (window.activeNetGraph && window.renderNetGraphModal) {
+            window.renderNetGraphModal();
         }
     }
 }
@@ -394,6 +400,10 @@ window.closeModal = function() {
     document.getElementById('modal-overlay').style.display = 'none';
     document.getElementById('modal').style.display = 'none';
     window.activeNetGraph = null;
+    if (window.netChartInstance) {
+        window.netChartInstance.destroy();
+        window.netChartInstance = null;
+    }
 };
 
 window.confirmKill = async function(pid) {
@@ -423,42 +433,178 @@ window.openSmart = async function(device) {
 };
 
 window.openNetGraph = async function(iface) {
+    if (window.netChartInstance) {
+        window.netChartInstance.destroy();
+        window.netChartInstance = null;
+    }
     window.activeNetGraph = iface;
-    openModal(T("Активность сети") + ": " + iface, '<div style="text-align:center;">' + T("Загрузка...") + '</div>');
+    openModal(T("Активность сети") + ": " + iface, '<div style="padding:20px; text-align:center; color:var(--text-secondary);">' + T("Загрузка...") + '</div>');
+    
+    window.netHistoryMap = window.netHistoryMap || {};
+    if (!window.netHistoryMap[iface]) {
+        window.netHistoryMap[iface] = Array(30).fill(0);
+    }
+
     try {
         const res = await fetch('/api/network/history');
-        const hist = await res.json();
-        window.activeNetGraphData = hist[iface] || [0];
-        window.renderNetGraphModal();
+        if (res.ok) {
+            const hist = await res.json();
+            if (hist && hist[iface]) {
+                window.netHistoryMap[iface] = hist[iface];
+            }
+        }
     } catch(e) {
-        document.getElementById('modal-body').innerHTML = '<div class="color-danger">' + e + '</div>';
+        console.warn("API /api/network/history unavailable, using real-time polling data:", e);
     }
+    
+    window.renderNetGraphModal();
 };
 
 window.renderNetGraphModal = function() {
     if (!window.activeNetGraph) return;
-    const data = window.activeNetGraphData;
-    if (!data || data.length === 0) {
-        document.getElementById('modal-body').innerHTML = '<div>No data</div>';
-        return;
-    }
-    
+    const iface = window.activeNetGraph;
+    window.netHistoryMap = window.netHistoryMap || {};
+    const data = window.netHistoryMap[iface] || [0];
+    const latest = data[data.length - 1] || 0;
     let max = Math.max(...data);
-    if(max === 0) max = 1;
-    
-    let svg = '<svg width="100%" height="200" viewBox="0 0 100 200" preserveAspectRatio="none" style="background: rgba(0,0,0,0.2); border-radius:8px; margin-top:1rem;">';
-    let step = 100 / Math.max(1, data.length - 1);
-    
-    let points = data.map((val, i) => {
-        let x = i * step;
-        let y = 200 - (val / max * 180);
-        return x + ',' + y;
-    }).join(' ');
-    
-    svg += '<polyline fill="none" stroke="var(--accent-blue)" stroke-width="2" points="' + points + '"/>';
-    svg += '</svg>';
-    
-    let html = '<div style="font-size:0.8rem; color:var(--text-secondary);">' + T("Максимум") + ': ' + max.toFixed(2) + ' Mbps</div>';
-    html += svg;
-    document.getElementById('modal-body').innerHTML = html;
+    if (max === 0) max = 1;
+
+    const modalBody = document.getElementById('modal-body');
+    let canvas = document.getElementById('net-chart-canvas');
+
+    if (!canvas) {
+        let html = `<div style="display:flex; justify-content:space-between; align-items:center; font-size:0.9rem; margin-bottom:12px;">
+            <div><b>${T("Текущая скорость")}:</b> <span id="net-curr-speed" class="color-accent" style="font-weight:600;">${latest.toFixed(2)} Mbps</span></div>
+            <div><b>${T("Пиковая скорость")}:</b> <span id="net-peak-speed" style="font-weight:600;">${max.toFixed(2)} Mbps</span></div>
+        </div>
+        <div style="position:relative; width:100%; height:250px; background:rgba(0,0,0,0.2); border:1px solid var(--card-border); border-radius:8px; padding:8px; box-sizing:border-box;">
+            <canvas id="net-chart-canvas"></canvas>
+        </div>`;
+        modalBody.innerHTML = html;
+        canvas = document.getElementById('net-chart-canvas');
+    } else {
+        const currEl = document.getElementById('net-curr-speed');
+        const peakEl = document.getElementById('net-peak-speed');
+        if (currEl) currEl.innerText = latest.toFixed(2) + ' Mbps';
+        if (peakEl) peakEl.innerText = max.toFixed(2) + ' Mbps';
+    }
+
+    const labels = data.map((_, i) => {
+        let secs = (data.length - 1 - i) * 2;
+        return secs === 0 ? T("Сейчас") : `-${secs}s`;
+    });
+
+    if (typeof Chart !== 'undefined' && canvas) {
+        if (window.netChartInstance) {
+            window.netChartInstance.data.labels = labels;
+            window.netChartInstance.data.datasets[0].data = data;
+            window.netChartInstance.update('none');
+        } else {
+            const ctx = canvas.getContext('2d');
+            const gradient = ctx.createLinearGradient(0, 0, 0, 200);
+            gradient.addColorStop(0, 'rgba(59, 130, 246, 0.4)');
+            gradient.addColorStop(1, 'rgba(59, 130, 246, 0.0)');
+
+            window.netChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Скорость (Mbps)',
+                        data: data,
+                        borderColor: '#3b82f6',
+                        borderWidth: 2,
+                        backgroundColor: gradient,
+                        fill: true,
+                        tension: 0.4,
+                        pointRadius: 2,
+                        pointHoverRadius: 6,
+                        pointBackgroundColor: '#60a5fa'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return context.parsed.y.toFixed(2) + ' Mbps';
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            ticks: { color: '#94a3b8', font: { size: 10 } }
+                        },
+                        y: {
+                            beginAtZero: true,
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            ticks: { 
+                                color: '#94a3b8', 
+                                font: { size: 10 },
+                                callback: function(value) { return value.toFixed(1) + ' Mbps'; }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    }
+};
+
+window.openDiagnosticModal = function() {
+    document.getElementById('modal-title').innerText = T("Диагностика системы и сенсоров");
+    document.getElementById('modal-body').innerHTML = `<div style="padding:30px; text-align:center; color:var(--warn); font-size:1.05rem;">⌛ ${T("Идёт глубокое сканирование сенсоров, прав и подсистем...")}</div>`;
+    document.getElementById('modal-overlay').style.display = 'block';
+    document.getElementById('modal').style.display = 'flex';
+
+    fetch('/api/diagnostic')
+        .then(r => r.json())
+        .then(data => {
+            let html = `<div style="display:flex; flex-direction:column; gap:12px;">`;
+            html += `<div style="padding:10px 14px; background:rgba(255,255,255,0.03); border:1px solid var(--card-border); border-radius:8px; font-size:0.9rem; display:flex; gap:15px; flex-wrap:wrap; align-items:center;">
+                <div><b>ОС:</b> ${data.os} (${data.kernel})</div>
+                <div><b>Хост:</b> ${data.hostname}</div>
+                <div><b>Права:</b> ${data.is_admin ? '<span class="color-ok" style="font-weight:600;">Администратор / Root (Полный доступ)</span>' : '<span class="color-warn" style="font-weight:600;">Обычный пользователь (Ограниченный доступ)</span>'}</div>
+            </div>`;
+
+            data.reports.forEach(rep => {
+                html += `<div class="diag-card">
+                    <div class="diag-title">${rep.component_name}</div>`;
+                rep.checks.forEach(ch => {
+                    let statusClass = '';
+                    let badge = '<span class="badge" style="background:var(--ok); color:#000; font-weight:700;">OK</span>';
+                    if (ch.status === 'WARN') {
+                        badge = '<span class="badge" style="background:var(--warn); color:#000; font-weight:700;">ВНИМАНИЕ</span>';
+                        statusClass = 'warn';
+                    }
+                    if (ch.status === 'FAIL') {
+                        badge = '<span class="badge" style="background:var(--danger); color:#fff; font-weight:700;">ОШИБКА</span>';
+                        statusClass = 'fail';
+                    }
+
+                    html += `<div class="diag-item ${statusClass}">
+                        <div class="diag-item-header">
+                            <span>${ch.name}</span>
+                            ${badge}
+                        </div>`;
+                    if (ch.value) html += `<div style="font-size:0.85rem; color:var(--text-secondary); margin-top:3px;">${ch.value}</div>`;
+                    if (ch.error_message) html += `<div class="diag-symptom"><b>Симптом:</b> ${ch.error_message}</div>`;
+                    if (ch.root_cause) html += `<div class="diag-cause"><b>Причина:</b> ${ch.root_cause}</div>`;
+                    if (ch.recommendation) html += `<div class="diag-solution"><b>Решение:</b> ${ch.recommendation.replace(/\n/g, '<br>')}</div>`;
+                    html += `</div>`;
+                });
+                html += `</div>`;
+            });
+            html += `</div>`;
+            document.getElementById('modal-body').innerHTML = html;
+        })
+        .catch(err => {
+            document.getElementById('modal-body').innerHTML = `<div style="color:var(--danger); padding:20px;">Не удалось загрузить отчет диагностики: ${err}</div>`;
+        });
 };

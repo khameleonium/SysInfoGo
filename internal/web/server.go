@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/user/sysinfogo/internal/diagnostic"
 	"github.com/user/sysinfogo/internal/locale"
 	"github.com/user/sysinfogo/internal/network"
 	"github.com/user/sysinfogo/internal/output"
@@ -87,6 +88,7 @@ func (s *Server) Start(ctx context.Context, interval time.Duration) error {
 	mux.HandleFunc("/api/export/txt", s.handleExportTXT)
 	mux.HandleFunc("/api/export/csv", s.handleExportCSV)
 	mux.HandleFunc("/api/export/html", s.handleExportHTML)
+	mux.HandleFunc("/api/diagnostic", s.handleDiagnostic)
 
 	bindAddr := s.host + ":" + s.port
 	if s.host == "" {
@@ -338,6 +340,7 @@ func (s *Server) handleProcessKill(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSmart(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
 	device := r.URL.Query().Get("device")
 	if device == "" {
 		http.Error(w, "device is required", http.StatusBadRequest)
@@ -363,13 +366,23 @@ func (s *Server) handleSmart(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleNetworkHistory(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Content-Type", "application/json")
+
 	s.dataMutex.RLock()
 	defer s.dataMutex.RUnlock()
 
-	w.Header().Set("Content-Type", "application/json")
 	if !s.bgNetHistory {
 		w.Write([]byte("{}"))
 		return
 	}
 	json.NewEncoder(w).Encode(s.netHistory)
+}
+
+func (s *Server) handleDiagnostic(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	res := diagnostic.Run(r.Context())
+	json.NewEncoder(w).Encode(res)
 }

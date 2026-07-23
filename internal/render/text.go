@@ -6,6 +6,7 @@ import (
 
 	"github.com/user/sysinfogo/internal/battery"
 	"github.com/user/sysinfogo/internal/cpu"
+	"github.com/user/sysinfogo/internal/diagnostic"
 	"github.com/user/sysinfogo/internal/gpu"
 	"github.com/user/sysinfogo/internal/locale"
 	mem "github.com/user/sysinfogo/internal/memory"
@@ -603,4 +604,74 @@ func truncate(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen-1] + "..."
+}
+
+func (f *TextFormatter) FormatDiagnostic(diag *diagnostic.DiagnosticResult) string {
+	var b strings.Builder
+
+	b.WriteString(f.sectionTitle("ОТЧЁТ ДИАГНОСТИКИ СИСТЕМЫ И ДАТЧИКОВ"))
+	b.WriteString(fmt.Sprintf("  Дата и время:          %s\n", diag.Timestamp.Format("2006-01-02 15:04:05")))
+	b.WriteString(fmt.Sprintf("  Операционная система:  %s (%s)\n", diag.OS, diag.Kernel))
+	b.WriteString(fmt.Sprintf("  Имя хоста:             %s\n", diag.Hostname))
+	if diag.IsAdmin {
+		b.WriteString(fmt.Sprintf("  Права доступа:         %s\n\n", output.Green("Администратор / Root (Полный доступ)")))
+	} else {
+		b.WriteString(fmt.Sprintf("  Права доступа:         %s\n\n", output.Yellow("Обычный пользователь (Ограниченный доступ к сенсорам)")))
+	}
+
+	totalWarnings := 0
+	totalErrors := 0
+
+	for _, rep := range diag.Reports {
+		b.WriteString(f.sectionTitle(rep.ComponentName))
+		for _, ch := range rep.Checks {
+			statusStr := ""
+			switch ch.Status {
+			case diagnostic.StatusOK:
+				statusStr = output.Green("[ OK ]")
+			case diagnostic.StatusWarn:
+				statusStr = output.Yellow("[ВНИМАНИЕ]")
+				totalWarnings++
+			case diagnostic.StatusFail:
+				statusStr = output.Red("[ОШИБКА]")
+				totalErrors++
+			}
+
+			b.WriteString(fmt.Sprintf("  %-42s %s", ch.Name+":", statusStr))
+			if ch.Value != "" {
+				b.WriteString(fmt.Sprintf("  %s", ch.Value))
+			}
+			b.WriteString("\n")
+
+			if ch.ErrorMessage != "" {
+				b.WriteString(fmt.Sprintf("    %s %s\n", output.Bold("Симптом:"), ch.ErrorMessage))
+			}
+			if ch.RootCause != "" {
+				b.WriteString(fmt.Sprintf("    %s %s\n", output.Yellow("Причина:"), ch.RootCause))
+			}
+			if ch.Recommendation != "" {
+				lines := strings.Split(ch.Recommendation, "\n")
+				b.WriteString(fmt.Sprintf("    %s %s\n", output.Green("Решение:"), lines[0]))
+				for _, line := range lines[1:] {
+					b.WriteString(fmt.Sprintf("             %s\n", line))
+				}
+			}
+			if ch.Status != diagnostic.StatusOK {
+				b.WriteString("\n")
+			}
+		}
+		b.WriteString("\n")
+	}
+
+	b.WriteString(f.sectionTitle("ИТОГ ДИАГНОСТИКИ"))
+	if totalErrors == 0 && totalWarnings == 0 {
+		b.WriteString(fmt.Sprintf("  %s Все подсистемы, права и сенсоры работают идеально.\n", output.Green("✔ ИДЕАЛЬНО:")))
+	} else {
+		b.WriteString(fmt.Sprintf("  Обнаружено предупреждений: %s, ошибок: %s\n", output.Yellow(fmt.Sprintf("%d", totalWarnings)), output.Red(fmt.Sprintf("%d", totalErrors))))
+		if !diag.IsAdmin {
+			b.WriteString(fmt.Sprintf("\n  %s Запустите SysInfoGo от имени Администратора (или sudo) для доступа ко всем MSR-сенсорам и сырым дискам SMART.\n", output.Bold("СОВЕТ:")))
+		}
+	}
+
+	return b.String()
 }

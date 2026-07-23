@@ -6,6 +6,7 @@
     <title>SysInfoGo Dashboard</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
     <div class="dashboard">
@@ -28,6 +29,7 @@
                     Загрузка...
                 </div>
                 <div class="export-buttons" id="export-buttons" style="display: none;">
+                    <button class="btn" style="background: rgba(234, 179, 8, 0.15); border-color: var(--warn); color: var(--warn); font-weight: 600;" onclick="openDiagnosticModal()">🔍 Диагностика</button>
                     <a href="/api/export/txt" class="btn">TXT</a>
                     <a href="/api/export/csv" class="btn">CSV</a>
                     <a href="/api/export/html" class="btn">HTML</a>

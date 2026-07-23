@@ -15,6 +15,7 @@ import (
 
 	"github.com/user/sysinfogo/internal/battery"
 	"github.com/user/sysinfogo/internal/cpu"
+	"github.com/user/sysinfogo/internal/diagnostic"
 	"github.com/user/sysinfogo/internal/gpu"
 	"github.com/user/sysinfogo/internal/locale"
 	"github.com/user/sysinfogo/internal/memory"
@@ -30,7 +31,7 @@ import (
 	"github.com/user/sysinfogo/internal/web"
 )
 
-const version = "1.4.0"
+const version = "1.5.0"
 
 var (
 	flagCPU          bool
@@ -63,6 +64,7 @@ var (
 	flagInitConfig   bool
 	flagInitLocale   bool
 	flagSmart        string
+	flagDiagnostic   bool
 )
 
 func init() {
@@ -70,6 +72,9 @@ func init() {
 
 	// Load locale silently (optional file)
 	_ = locale.Load()
+
+	flag.BoolVar(&flagDiagnostic, "diagnostic", false, "")
+	flag.BoolVar(&flagDiagnostic, "d", false, "")
 
 	flag.StringVar(&flagSmart, "smart", "", "")
 	flag.StringVar(&flagSmart, "sm", "", "")
@@ -186,6 +191,11 @@ func main() {
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
+
+	if flagDiagnostic {
+		runDiagnostic(ctx, noColor)
+		return
+	}
 
 	if flagSmart != "" {
 		runSmart(ctx, flagSmart)
@@ -560,4 +570,11 @@ func runSmart(ctx context.Context, target string) {
 	}
 
 	fmt.Println(storage.GetSmartReport(ctx, *targetDisk))
+}
+
+func runDiagnostic(ctx context.Context, noColor bool) {
+	fmt.Println("Запуск глубокой диагностики датчиков, подсистем и прав SysInfoGo...")
+	diagResult := diagnostic.Run(ctx)
+	formatter := render.NewTextFormatter(!noColor, flagVerbose, flagUnits, flagAllProcesses)
+	fmt.Print(formatter.FormatDiagnostic(diagResult))
 }

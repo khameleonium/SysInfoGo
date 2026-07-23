@@ -159,6 +159,11 @@ func (a *App) setupBindings() {
 					a.updateWidgets(a.lastData)
 					return nil
 				}
+			case 'd', 'D', 'в', 'В':
+				if !isModalOpen {
+					a.showDiagnosticModal()
+					return nil
+				}
 			}
 		case tcell.KeyRight, tcell.KeyTab:
 			if !isModalOpen {
